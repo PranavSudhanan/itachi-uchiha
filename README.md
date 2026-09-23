@@ -1,4 +1,4 @@
-# Itachi Uchiha — The Crow of the Leaf
+﻿# Itachi Uchiha — The Crow of the Leaf
 
 An immersive, responsive 3D character tribute to Itachi Uchiha (Naruto), built with Three.js and Vite.
 Every model, texture, sound effect and piece of music is generated in code, so there are no asset files to download.
@@ -20,7 +20,7 @@ Most interaction is by gesture: **tap**, **hold** (a charge ring appears), **swi
 | 1 | **Prologue** | The eye follows you. **Hold** the eye to awaken it (Sharingan → Mangekyō → onyx). Drag through falling feathers; clouds drift across the red moon. |
 | 2 | **Chronicle** | **Swipe** or scroll along a path of 10 stone tablets covering his life. |
 | 3 | **Relics** | **Flick** the altar and it spins with momentum, then settles. **Tap** a relic to lift it and **drag** to turn it. Spotlight shadows. |
-| 4 | **Training** | **Flick** toward a target to throw shuriken (swipe speed sets throw power; a very fast flick throws two). 30-second trial. Weave hand signs with the **Q–V keys** or the panel to cast Great Fireball, Phoenix Sage Fire and Summoning: Crows. Moonlit clearing with wind-blown grass that flattens in fireball blasts, fireflies and a pine forest. |
+| 4 | **Training** | **Flick** toward a target to throw shuriken (swipe speed sets throw power; a very fast flick throws two). 30-second trial. Switch to Hand Signs and Itachi appears in the clearing. Weave signs with the **Q–V keys** or the panel; tap a scroll to be guided (the next sign glows), and a wrong sign fizzles. Each finished jutsu plays a cinematic with camera moves and a calligraphy title card. **Great Fireball**: chakra gathers, a stream of fire feeds a rolling fireball, it explodes and leaves scorched, burning ground. **Phoenix Sage Fire**: an arcing volley that hides shuriken inside the flames. **Summoning: Crows**: a glowing seal, a smoke burst and a vortex of crows. Moonlit clearing with wind-blown grass that flattens in fireball blasts, fireflies and a pine forest. |
 | 5 | **Precognition** *(game)* | Kunai, shuriken and explosive tags fly at you. **Tap** or **slash** them away. **Hold** (or press Space) for Sharingan slow motion, which reveals every trajectory and drains chakra. Includes combos, 3 lives and a saved best score. |
 | 6 | **Crows** | **Draw** any shape and 360 crows fly into it. **Hold** still for a vortex, **flick** for a gust, **tap** to scatter. Preset shapes are also available. Find Shisui's red-eyed crow. |
 | 7 | **Amaterasu** | **Stare** (hold) to ignite black flames where you look, then **keep dragging** to paint fire. The flames are shader-drawn, black with a violet rim, and they spread and burn logs to ash. **Swipe down** to close the eye. Chakra is limited. |

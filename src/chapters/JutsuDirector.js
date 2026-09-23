@@ -9,12 +9,12 @@ import { NOISE_GLSL, shared, drawTexture, glowTexture, rand, damp, clamp, lerp, 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const val = (v) => (typeof v === 'function' ? v() : v);
 
-function fireBallMaterial(seed, { inner = false } = {}) {
+function fireBallMaterial(seed, { inner = false, additive = true } = {}) {
   return new THREE.ShaderMaterial({
     uniforms: { uTime: shared.uTime, uAlpha: { value: 1 }, uSeed: { value: seed }, uHeat: { value: 1 } },
     transparent: true,
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
+    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
     side: inner ? THREE.BackSide : THREE.FrontSide,
     vertexShader: /* glsl */ `
       ${NOISE_GLSL}
@@ -40,14 +40,14 @@ function fireBallMaterial(seed, { inner = false } = {}) {
         float fres = 1.0 - abs(dot(normalize(vN), normalize(vV)));
         float n = snoise(vP * 2.4 + vec3(0.0, -uTime * 4.0, uSeed)) * 0.5 + 0.5;
         float n2 = snoise(vP * 6.0 + vec3(uTime * 2.0, -uTime * 6.0, uSeed)) * 0.5 + 0.5;
-        float k = clamp(fres * 1.1 + (1.0 - n) * 0.5 + n2 * 0.25 - vDisp * 1.5 - 0.15 + (1.0 - uHeat) * 0.5, 0.0, 1.0);
+        float k = clamp(fres * 0.8 + (1.0 - n) * 0.75 + n2 * 0.4 - vDisp * 2.2 - 0.05 + (1.0 - uHeat) * 0.5, 0.0, 1.0);
         vec3 white = vec3(1.0, 0.97, 0.85);
         vec3 yellow = vec3(1.0, 0.72, 0.22);
         vec3 orange = vec3(1.0, 0.33, 0.04);
         vec3 red = vec3(0.55, 0.04, 0.0);
-        vec3 col = mix(white, yellow, smoothstep(0.0, 0.35, k));
-        col = mix(col, orange, smoothstep(0.3, 0.65, k));
-        col = mix(col, red, smoothstep(0.65, 1.0, k));
+        vec3 col = mix(white, yellow, smoothstep(0.0, 0.2, k));
+        col = mix(col, orange, smoothstep(0.2, 0.55, k));
+        col = mix(col, red, smoothstep(0.55, 0.95, k));
         float a = uAlpha * (1.0 - smoothstep(0.75, 1.0, k) * 0.8);
         gl_FragColor = vec4(col * (0.85 + n2 * 0.45), a * 0.9);
         #include <colorspace_fragment>
@@ -154,7 +154,7 @@ export class JutsuDirector {
 
     // great fireball: core + shell
     this.ball = new THREE.Group();
-    this.ballCore = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 5), fireBallMaterial(1.7));
+    this.ballCore = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 5), fireBallMaterial(1.7, { additive: false }));
     this.ballShell = new THREE.Mesh(new THREE.IcosahedronGeometry(1.18, 4), fireBallMaterial(5.3, { inner: false }));
     this.ballShell.material.uniforms.uHeat.value = 0.55;
     this.ball.add(this.ballCore, this.ballShell);
@@ -326,7 +326,7 @@ export class JutsuDirector {
       this.ball.position.copy(this.ballStart);
       this.ball.scale.setScalar(0.2);
       this.ballCore.material.uniforms.uAlpha.value = 1;
-      this.ballShell.material.uniforms.uAlpha.value = 0.85;
+      this.ballShell.material.uniforms.uAlpha.value = 0.35;
       this.shake = 0.5;
     });
     this._at(2.1, () => { this.phase = 'fb-roll'; });
@@ -431,7 +431,7 @@ export class JutsuDirector {
       const k = clamp(this.blastT / 0.45, 0, 1);
       this.ball.scale.setScalar(3.5 + k * 2.5);
       this.ballCore.material.uniforms.uAlpha.value = 1 - k;
-      this.ballShell.material.uniforms.uAlpha.value = 0.85 * (1 - k);
+      this.ballShell.material.uniforms.uAlpha.value = 0.35 * (1 - k);
       if (k >= 1) this.ball.visible = false;
       this.ch.bendAt = { x: this.ballEnd.x, z: this.ballEnd.z, r: 7, s: 1.6 * (1 - k * 0.5) };
     }
@@ -524,8 +524,8 @@ export class JutsuDirector {
     this.summonC = I.clone().add(V(0.3, 0, -3.4));
     const C = this.summonC;
     this._track([
-      { t: 0.55, pos: I.clone().add(V(2.2, 0.55, -3.2)), look: I.clone().add(V(0, 1.0, 0)) },
-      { t: 1.0, pos: I.clone().add(V(3.4, 1.2, -2.2)), look: C.clone().add(V(0, 0.4, 0)) },
+      { t: 0.55, pos: I.clone().add(V(2.3, 1.45, -3.3)), look: I.clone().add(V(0, 1.0, 0)) },
+      { t: 1.05, pos: I.clone().add(V(3.2, 3.6, 0.6)), look: C.clone() },
       { t: 2.2, pos: C.clone().add(V(7.5, 1.1, 7)), look: C.clone().add(V(0, 3.2, 0)) },
       { t: 4.4, pos: C.clone().add(V(5.5, 0.8, 9)), look: C.clone().add(V(0, 5.5, 0)) },
       { t: 5.6, pos: this._baseCam(), look: this._baseLook() },
