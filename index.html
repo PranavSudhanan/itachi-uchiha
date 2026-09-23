@@ -1,0 +1,64 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Itachi Uchiha — The Crow of the Leaf</title>
+    <meta name="description" content="An interactive 3D tribute to Itachi Uchiha: Sharingan, crows, Amaterasu, Tsukuyomi, Susanoo, training grounds, a life chronicle and a quiz." />
+    <meta name="theme-color" content="#07030a" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=Inter:wght@400;500;600&family=Noto+Serif+JP:wght@500;900&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <canvas id="webgl" aria-label="Interactive 3D scene"></canvas>
+
+    <div id="loader" aria-live="polite">
+      <div class="loader-eye" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+      <p class="loader-jp">うちはイタチ</p>
+      <h1 class="loader-title">Itachi Uchiha</h1>
+      <p class="loader-sub">The Crow of the Leaf</p>
+      <div class="loader-bar"><i id="loader-progress"></i></div>
+      <button id="enter-btn" class="btn btn-primary" disabled>Preparing genjutsu…</button>
+      <p class="loader-hint">Best with sound on · drag, tap and explore everything</p>
+      <p class="loader-legal">Unofficial fan tribute. Naruto © Masashi Kishimoto / Shueisha / Studio Pierrot.</p>
+    </div>
+
+    <div id="transition" aria-hidden="true"><div class="t-eye"></div></div>
+
+    <header class="topbar">
+      <button class="brand" data-goto="0" aria-label="Back to the prologue">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-text">ITACHI<small>うちはイタチ</small></span>
+      </button>
+      <div class="topbar-actions">
+        <span id="chapter-count" class="chapter-count">01 / 09</span>
+        <button id="music-btn" class="icon-btn" aria-label="Toggle music" aria-pressed="true" title="Music">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M9 18.5a2.5 2.5 0 1 1-2-2.45V5.5l11-2.5v11.5a2.5 2.5 0 1 1-2-2.45V7.4L9 8.9z"/><path class="slash" d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <button id="sound-btn" class="icon-btn" aria-label="Mute all sound (M)" aria-pressed="true" title="Mute all (M)">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4z"/><path class="slash" d="M4 4l16 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path class="wave" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <nav id="nav" aria-label="Chapters"></nav>
+    <div class="pager">
+      <button id="prev-btn" class="icon-btn" aria-label="Previous chapter">&#8592;</button>
+      <button id="next-btn" class="icon-btn" aria-label="Next chapter">&#8594;</button>
+    </div>
+
+    <main id="hud"></main>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <div id="blood" aria-hidden="true"></div>
+    <canvas id="trail" aria-hidden="true"></canvas>
+    <div id="charge" aria-hidden="true"><svg viewBox="0 0 60 60"><circle class="bg" cx="30" cy="30" r="26"/><circle class="fg" cx="30" cy="30" r="26"/></svg></div>
+    <div id="cursor" aria-hidden="true"></div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
