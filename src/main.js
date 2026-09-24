@@ -70,6 +70,7 @@ async function boot() {
   enterBtn.textContent = 'Enter the genjutsu';
   enterBtn.focus();
   enterBtn.addEventListener('click', () => {
+    if (app.isTouch) app.tilt.request(); // iOS only asks from inside a tap
     app.sfx.unlock();
     app.sfx.setMood(app.current.mood);
     loader.classList.add('done');

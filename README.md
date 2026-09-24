@@ -60,6 +60,13 @@ Most interaction is by gesture: **tap**, **hold** (a charge ring appears), **swi
 | 9 | **Susanoo** *(game)* | **Swipe up** to manifest each stage and **down** to recede. **Slash** to swing the Totsuka Blade. **Hold** to raise the Yata Mirror. The scene has a thunderstorm with rain and lightning. **Hold the Line**: seal shadow shinobi with slashes and reflect their attacks with the mirror. |
 | 10 | **Trials** | An 8-question quiz where each correct answer adds a tomoe. Includes flip-card trivia. |
 
+## On phones
+
+- **Tilt to look around:** the gyroscope turns the camera a little, like looking through a window. The neutral angle re-centres slowly to however you hold the phone. iOS asks for motion access when you tap *Enter*, and reduced-motion settings turn it off.
+- **Touch feedback:** a chakra ripple spreads from every touch. On phones that support it, haptics mark hand signs, slashes, jutsu impacts, hits and quiz answers.
+- **Guides tuck away:** each chapter's guides show on arrival and fold away after your first touch (or 9 s). The *Guide* pill brings them back. When a chapter's own panel or card is open, it takes priority over the guides.
+- **Layouts:** portrait uses a bottom tab bar, and the HUD rides above each chapter's control bar whatever its height. Landscape uses a compact dot nav, the intro on the left, and panels and controls on the right.
+
 ## Sound
 
 - The soundtrack is generated live in the Japanese Hirajoshi scale: koto, shakuhachi, taiko, temple bells and a drone.

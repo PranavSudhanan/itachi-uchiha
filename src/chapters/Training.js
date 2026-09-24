@@ -237,6 +237,7 @@ export class Training extends Chapter {
     this.mode = m;
     for (const [k, b] of Object.entries(this.modeBtns)) b.classList.toggle('active', k === m);
     this.signsPanel.style.display = m === 'signs' ? '' : 'none';
+    this.signsPanel.classList.toggle('open', m === 'signs');
     this.pills.style.display = m === 'shuriken' ? '' : 'none';
     this.roundBtn.style.display = m === 'shuriken' ? '' : 'none';
     if (m === 'signs' && this.round.on) this.endRound();

@@ -1,4 +1,5 @@
-﻿import * as THREE from 'three';
+﻿import { Tilt, ripple, enableHaptics } from './Mobile.js';
+import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -20,6 +21,14 @@ export class App {
     this.isMobile = this.isTouch || Math.min(innerWidth, innerHeight) < 600;
     this.low = this.isMobile;
     this.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.phoneLayout = matchMedia('(max-width: 760px), (max-height: 560px) and (orientation: landscape)');
+    // phones: tilt to look around, a ripple under every touch, haptics on the big moments
+    this.tilt = new Tilt();
+    if (this.isTouch) enableHaptics(sfx);
+    // the mobile HUD sits above each chapter's control bar, whatever its height
+    this._ctrlObserver = new ResizeObserver((entries) => {
+      for (const e of entries) this._measureControls(e.target.closest('.chapter-ui'));
+    });
     this.width = innerWidth;
     this.height = innerHeight;
 
@@ -161,6 +170,31 @@ export class App {
     }
   }
 
+  /** Publishes the height of a chapter's control bar (the tallest one showing) as --ctrl-h. */
+  _measureControls(ui) {
+    if (!ui) return;
+    let hgt = 0;
+    ui.querySelectorAll('.controls').forEach((c) => { hgt = Math.max(hgt, c.offsetHeight); });
+    ui.style.setProperty('--ctrl-h', `${Math.round(hgt)}px`);
+  }
+
+  /** Phones: each chapter's guides show on arrival, then tuck away (a "Guide" pill brings them back). */
+  _guides(ch) {
+    const intro = ch.ui.querySelector('.intro');
+    if (!intro) return;
+    clearTimeout(this._tuckT);
+    intro.classList.remove('tucked', 'show-guide');
+    if (this.phoneLayout.matches) this._tuckT = setTimeout(() => intro.classList.add('tucked'), 9000);
+  }
+
+  _tuck() {
+    if (!this.phoneLayout.matches) return;
+    const intro = this.current?.ui.querySelector('.intro');
+    if (!intro || intro.classList.contains('tucked')) return;
+    clearTimeout(this._tuckT);
+    this._tuckT = setTimeout(() => intro.classList.add('tucked'), 900);
+  }
+
   _activate(i) {
     const ch = this.chapters[i];
     this.ensureBuilt(ch);
@@ -169,6 +203,9 @@ export class App {
     ch.active = true;
     ch.enter();
     ch.ui.classList.add('active');
+    ch.ui.querySelectorAll('.controls').forEach((c) => this._ctrlObserver.observe(c));
+    this._measureControls(ch.ui);
+    this._guides(ch);
     this.renderPass.scene = ch.scene;
     this.renderPass.camera = ch.camera;
     this.bloomPass.strength = ch.bloom.strength;
@@ -256,8 +293,9 @@ export class App {
   toast(html, ms = 3200) {
     this.toastEl.innerHTML = html;
     this.toastEl.classList.add('show');
+    document.body.classList.add('toasting');
     clearTimeout(this._toastT);
-    this._toastT = setTimeout(() => this.toastEl.classList.remove('show'), ms);
+    this._toastT = setTimeout(() => { this.toastEl.classList.remove('show'); document.body.classList.remove('toasting'); }, ms);
   }
 
   bleed() {
@@ -301,6 +339,7 @@ export class App {
       p.startY = e.clientY;
       p.path = [{ x: e.clientX, y: e.clientY, t: p.startTime }];
       this.cursor.classList.add('down');
+      if (e.pointerType === 'touch') { ripple(e.clientX, e.clientY); this._tuck(); }
       if (!this.busy) this.current?.pointerDown(p);
     });
 
@@ -462,6 +501,7 @@ export class App {
     this._resizeTrail();
     this._updatePointScale();
     for (const ch of this.chapters) if (ch.built) ch.resize(this.width, this.height);
+    if (this.current) this._measureControls(this.current.ui);
   }
 
   _drawTrail(now) {
@@ -504,6 +544,9 @@ export class App {
     if (p.down && p.moved < HOLD_SLOP) p.holdTime += dt;
     else if (p.down) p.holdTime = 0;
 
+    const cam = this.renderPass.camera;
+    if (this._tiltSaved) { cam.quaternion.copy(this._tiltSaved); this._tiltSaved = null; }
+
     this._chargeSet = false;
     ch.update(dt, this._t);
     if (!this._chargeSet) { this.chargeEl.classList.remove('on', 'full'); }
@@ -525,6 +568,14 @@ export class App {
     u.uTint.value.lerp(this._tint.set(g.tint), 1 - Math.exp(-5 * dt));
     this.flashAmt = damp(this.flashAmt, 0, 7, dt);
     u.uFlash.value = this.flashAmt;
+
+    if (this.tilt.active && !this.reducedMotion) {
+      this.tilt.update(dt);
+      this._tiltSaved = cam.quaternion.clone();
+      cam.rotateY(-this.tilt.x * 0.075);
+      cam.rotateX(-this.tilt.y * 0.055);
+      cam.updateMatrixWorld();
+    }
 
     this.composer.render(dt);
     this._drawTrail(now);

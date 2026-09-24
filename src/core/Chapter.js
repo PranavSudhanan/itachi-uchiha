@@ -93,6 +93,7 @@ export class Chapter {
       {},
       h('div.jp-bg', { text: jp || '' }),
       h('span.kicker', { text: kicker }),
+      h('button.guide-btn.pe', { type: 'button', 'aria-label': 'Show the guide', text: 'Guide', onclick: () => { const t = el.classList.toggle('tucked'); el.classList.toggle('show-guide', !t); } }),
       h('h2', { html: title }),
       h('p.desc.pe', { html: desc, onclick: () => el.classList.toggle('expanded') }),
       quote ? h('blockquote.quote', { html: quote }) : null,
