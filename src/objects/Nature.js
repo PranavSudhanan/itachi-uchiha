@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { shared, rand, TAU, drawTexture } from '../core/utils.js';
 
 /**
@@ -6,7 +6,7 @@ import { shared, rand, TAU, drawTexture } from '../core/utils.js';
  * `bend` (optional Vector4 uniform: x,z,radius,strength) pushes blades away from a point (footsteps, blasts).
  */
 export function createGrass({ count = 12000, area = 40, center = new THREE.Vector3(), base = 0x0b140c, tip = 0x3f5a2c, height = [0.35, 0.9], avoid = null } = {}) {
-  const segs = 4;
+  const segs = 3;
   const P = [], C = [];
   const cb = new THREE.Color(base), ct = new THREE.Color(tip);
   for (let i = 0; i < segs; i++) {
@@ -61,7 +61,6 @@ export function createGrass({ count = 12000, area = 40, center = new THREE.Vecto
     mesh.setMatrixAt(placed++, d.matrix);
   }
   mesh.count = placed;
-  mesh.receiveShadow = true;
   mesh.userData.bend = bend;
   return mesh;
 }

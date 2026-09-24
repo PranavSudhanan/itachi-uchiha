@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
@@ -23,19 +23,30 @@ export class App {
     this.width = innerWidth;
     this.height = innerHeight;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: !this.low, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, this.low ? 1.5 : 2));
+    // Antialiasing on the default framebuffer is wasted with post-processing; MSAA lives on the composer target instead.
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: false, stencil: false, powerPreference: 'high-performance' });
+    this.maxDpr = Math.min(devicePixelRatio, this.low ? 1.25 : 1.5);
+    this.minDpr = this.low ? 0.6 : 0.75;
+    this.dpr = this.maxDpr;
+    this.renderer.setPixelRatio(this.dpr);
     this.renderer.setSize(this.width, this.height, false);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1;
     this.renderer.setClearColor(0x07030a, 1);
     this.renderer.shadowMap.enabled = !this.low;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
-    this.composer = new EffectComposer(this.renderer);
+    const rt = new THREE.WebGLRenderTarget(this.width * this.dpr, this.height * this.dpr, {
+      type: THREE.HalfFloatType,
+      samples: !this.low && this.dpr < 1.5 ? 4 : 0,
+    });
+    this.composer = new EffectComposer(this.renderer, rt);
     this.renderPass = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
-    const bloomScale = this.low ? 0.4 : 0.6;
-    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(this.width * bloomScale, this.height * bloomScale), 0.9, 0.5, 0.75);
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(this.width, this.height), 0.9, 0.5, 0.75);
+    // bloom is a blur — run it at half the composer's resolution (quarter the pixels)
+    const bloomSetSize = this.bloomPass.setSize.bind(this.bloomPass);
+    this.bloomPass.setSize = (w, hh) => bloomSetSize(Math.max(2, Math.round(w * 0.5)), Math.max(2, Math.round(hh * 0.5)));
+    this.perf = { acc: 0, frames: 0, cooldown: 2 };
     this.cinePass = createCinematicPass();
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.bloomPass);
@@ -124,7 +135,30 @@ export class App {
     ch.build();
     ch.built = true;
     ch.resize(this.width, this.height);
-    try { this.renderer.compile(ch.scene, ch.camera); } catch (e) { /* ignore */ }
+    this._precompile(ch);
+  }
+
+  /**
+   * Compiles every shader a chapter will ever need — including hidden effects (fireballs, crow bursts,
+   * Itachi before he appears) — so nothing stalls the first time it shows up.
+   * Uses the non-blocking compileAsync (KHR_parallel_shader_compile) when available.
+   */
+  _precompile(ch) {
+    const hidden = [];
+    ch.scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
+    const restore = () => hidden.forEach((o) => { o.visible = false; });
+    try {
+      if (this.renderer.compileAsync) {
+        const p = this.renderer.compileAsync(ch.scene, ch.camera);
+        restore(); // programs are already queued; visibility can go back immediately
+        p.catch(() => {});
+      } else {
+        this.renderer.compile(ch.scene, ch.camera);
+        restore();
+      }
+    } catch (e) {
+      restore();
+    }
   }
 
   _activate(i) {
@@ -146,16 +180,14 @@ export class App {
     this._prebuildNext();
   }
 
+  /** Builds only the neighbouring chapters in idle time, so navigation is instant without loading everything up front. */
   _prebuildNext() {
-    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 400));
-    const next = this.chapters.find((c) => !c.built);
-    if (!next) return;
-    idle(() => {
-      if (!next.built && !this.busy) {
-        this.ensureBuilt(next);
-        this._prebuildNext();
-      }
-    }, { timeout: 2500 });
+    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 600));
+    const n = this.chapters.length;
+    const wanted = [this.index + 1, this.index - 1].map((i) => this.chapters[(i + n) % n]).filter((c) => !c.built);
+    wanted.forEach((ch, k) => idle(() => {
+      if (!ch.built && !this.busy) this.ensureBuilt(ch);
+    }, { timeout: 3000 + k * 1500 }));
   }
 
   start(i = 0) {
@@ -386,6 +418,29 @@ export class App {
     sync();
   }
 
+  /** Keeps the frame rate high: lowers the render resolution when frames get slow, raises it when there is headroom. */
+  _adapt(frameTime) {
+    const p = this.perf;
+    if (document.hidden || this.busy || frameTime > 0.25) return;
+    p.acc += frameTime;
+    p.frames++;
+    if (p.acc < 1) return;
+    const avg = p.acc / p.frames;
+    p.acc = 0;
+    p.frames = 0;
+    if (p.cooldown > 0) { p.cooldown--; return; }
+    let next = this.dpr;
+    if (avg > 1 / 50) next = Math.max(this.minDpr, this.dpr - 0.15);
+    else if (avg < 1 / 58 && this.dpr < this.maxDpr) next = Math.min(this.maxDpr, this.dpr + 0.1);
+    if (Math.abs(next - this.dpr) > 0.01) {
+      this.dpr = next;
+      this.renderer.setPixelRatio(next);
+      this.composer.setPixelRatio(next);
+      this._resize();
+      p.cooldown = 2;
+    }
+  }
+
   _updatePointScale() {
     const dpr = this.renderer.getPixelRatio();
     shared.uPointScale.value = (dpr * this.height * 0.5) / Math.tan(THREE.MathUtils.degToRad(25));
@@ -393,7 +448,7 @@ export class App {
   }
 
   _resizeTrail() {
-    const dpr = Math.min(devicePixelRatio, 2);
+    const dpr = Math.min(devicePixelRatio, 1.5);
     this.trailCanvas.width = this.width * dpr;
     this.trailCanvas.height = this.height * dpr;
     this.trailCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -436,8 +491,10 @@ export class App {
 
   _tick = (now) => {
     requestAnimationFrame(this._tick);
-    const dt = Math.min((now - this._last) / 1000, 0.05);
+    const raw = (now - this._last) / 1000;
+    const dt = Math.min(raw, 0.05);
     this._last = now;
+    this._adapt(raw);
     this._t += dt;
     shared.uTime.value = this._t;
     const ch = this.current;

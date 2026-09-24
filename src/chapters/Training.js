@@ -73,9 +73,7 @@ export class Training extends Chapter {
     this.flash = new THREE.PointLight(0xff7020, 0, 40, 1.5);
     s.add(this.flash);
     for (const x of [-5, 5]) {
-      const l = new THREE.PointLight(0xffa050, 8, 12, 1.8);
-      l.position.set(x, 2.3, -3);
-      s.add(l);
+      const l = new THREE.Object3D();
       // paper lantern hanging from a wooden post
       const paper = new THREE.Mesh(new THREE.SphereGeometry(0.2, 20, 14), new THREE.MeshStandardMaterial({ color: 0x3a0806, emissive: 0xff5a24, emissiveIntensity: 1.1, roughness: 0.8 }));
       paper.scale.y = 1.35;
@@ -126,7 +124,7 @@ export class Training extends Chapter {
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     s.add(ground);
-    this.grass = createGrass({ count: this.app.low ? 6000 : 18000, area: 24, center: new THREE.Vector3(0, 0, -8), tip: 0x5f7f3c, base: 0x13200f, avoid: (x, z) => Math.abs(x) < 1.3 && z > -2 });
+    this.grass = createGrass({ count: this.app.low ? 3500 : 9000, area: 24, center: new THREE.Vector3(0, 0, -8), tip: 0x5f7f3c, base: 0x13200f, avoid: (x, z) => Math.abs(x) < 1.3 && z > -2 });
     s.add(this.grass);
     s.add(createForest({ count: this.app.low ? 30 : 52, rMin: 22, rMax: 40, arc: [-Math.PI * 1.1, Math.PI * 0.1], center: new THREE.Vector3(0, 0, -4), castShadow: false }));
     this.fireflies = new ParticlePool({ count: 150, softness: 2 });

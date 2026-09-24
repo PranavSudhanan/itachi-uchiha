@@ -1,7 +1,9 @@
 ﻿import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
+import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { FlameField } from '../objects/FlameField.js';
+import { createItachi } from '../objects/ItachiGLB.js';
 import { makeSky, drawTexture, rand, damp, TAU, h, clamp, sharinganTexture } from '../core/utils.js';
 
 const COST = 18;
@@ -87,9 +89,9 @@ export class Amaterasu extends Chapter {
     });
 
     // black flames: dark core + faint violet edge (normal blending), and a subtle crimson glow layer
-    const n = this.app.low ? 2600 : 6000;
+    const n = this.app.low ? 1000 : 2400;
     this.flames = new ParticlePool({ count: n, blending: THREE.NormalBlending, rim: 0x2a0620, rimAmount: 0.55, softness: 0.7, buoyancy: 1.8, drag: 1.6, turbulence: 2.6 });
-    this.glow = new ParticlePool({ count: 900, buoyancy: 1.2, drag: 1.5, turbulence: 1.5, softness: 2 });
+    this.glow = new ParticlePool({ count: 400, buoyancy: 1.2, drag: 1.5, turbulence: 1.5, softness: 2 });
     s.add(this.glow.points, this.flames.points);
     this.coreColor = new THREE.Color(0x020003);
     this.coreColor2 = new THREE.Color(0x0c0210);
@@ -110,7 +112,18 @@ export class Amaterasu extends Chapter {
     this.reticle.rotation.x = -Math.PI / 2;
     this.reticle.position.y = 0.03;
     s.add(this.reticle);
-    this.gaze = new THREE.Vector3();
+    this.gaze = new THREE.Vector3(0, 0, -3);
+
+    // Itachi stands at the edge of the field, casting with his right eye
+    this.itachi = createItachi({ castShadow: !this.app.low });
+    this.itachi.root.position.set(3.4, 0, 2.4);
+    this.itachi.root.rotation.y = Math.atan2(-1.5 - 3.4, -4 - 2.4);
+    this.itachi.root.scale.setScalar(1.25);
+    this.itachi.setEyes('mangekyo');
+    s.add(this.itachi.root);
+    this.coverT = 0;
+    this.bleedT = 0;
+    this.focusT = 0;
     this.lastPaint = new THREE.Vector3(999, 0, 999);
 
     this.camera.position.set(0, 7, 15);
@@ -148,7 +161,9 @@ export class Amaterasu extends Chapter {
     this.sources.push({ p: point.clone(), s: 0.1, strength, life: rand(18, 26), spread: rand(3, 6), obj, tongues });
     if (obj) obj.userData.burning = true;
     if (!silent) {
-      this.app.sfx.flame();
+      // the first burst of a stare is named aloud; follow-ups just catch
+      if (voice.say('amaterasu', { cooldown: 9 }) || strength >= 1.2) this.app.sfx.amaterasu();
+      else this.app.sfx.flame();
       this.flames.burst(point, 80, { speed: 3, up: 2, life: [0.4, 1.2], size: [0.25, 0.6], colors: [this.coreColor, this.coreColor2], grow: -0.3 });
     }
   }
@@ -206,7 +221,10 @@ export class Amaterasu extends Chapter {
     }
   }
 
-  pointerUp() { this.painting = false; }
+  pointerUp() {
+    if (this.painting) { this.coverT = 1.8; this.bleedT = 7; }
+    this.painting = false;
+  }
 
   swipe(s) {
     if (this.painting || s.vy < 0.6 || Math.abs(s.dy) < Math.abs(s.dx)) return !!this.painting;
@@ -221,6 +239,8 @@ export class Amaterasu extends Chapter {
       if (hit.obj.userData.hp <= 0 || !this._spend(COST)) return;
       this.ignite(hit.point.clone(), { obj: hit.obj, strength: 1.2 });
     } else if (this._spend(10)) this.ignite(hit.point, { strength: 0.65 });
+    this.focusT = 0.6;
+    this.bleedT = Math.max(this.bleedT, 4);
   }
   exit() {
     this.app.canvas.classList.remove('blurred');
@@ -233,6 +253,7 @@ export class Amaterasu extends Chapter {
       if (hit && this._spend(hit.obj ? COST : 14)) {
         this.ignite(hit.obj ? hit.point.clone() : hit.point, { obj: hit.obj && hit.obj.userData.hp > 0 ? hit.obj : null, strength: 1.2 });
         this.painting = true;
+        this.bleedT = 7;
         this.lastPaint.copy(hit.point).setY(0);
         this.app.flash(0.15, 0x400010);
       }
@@ -244,6 +265,24 @@ export class Amaterasu extends Chapter {
     this.reticle.material.opacity = damp(this.reticle.material.opacity, showReticle ? 0.35 + hold.progress * 0.5 + (this.painting ? 0.4 : 0) : 0, 8, dt);
     this.reticle.scale.setScalar(1 - hold.progress * 0.35);
     this.grade.ca = 0.012 + hold.progress * 0.04 + (this.painting ? 0.02 : 0);
+    // Itachi: seal raised while focusing, head following the gaze, hand to the bleeding eye afterwards
+    {
+      const m = this.itachi;
+      this.coverT = Math.max(0, this.coverT - dt);
+      this.bleedT = Math.max(0, this.bleedT - dt);
+      this.focusT = Math.max(0, this.focusT - dt);
+      const focusing = hold.progress > 0 || this.painting || this.focusT > 0;
+      const want = focusing ? 'focus' : this.coverT > 0 ? 'coverEye' : 'idle';
+      if (m.poseName !== want) m.setPose(want, {}, focusing ? 12 : 5);
+      if (want !== 'coverEye') {
+        let yaw = Math.atan2(this.gaze.x - m.root.position.x, this.gaze.z - m.root.position.z) - m.root.rotation.y;
+        yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+        m.look(yaw * 0.85, focusing ? 0.2 : 0.12);
+      }
+      m.setBleeding(this.bleedT > 0, 'r');
+      m.update(dt, t);
+    }
+
     this.chakra = clamp(this.chakra + dt * 7, 0, 100);
     this.fill.style.width = `${this.chakra}%`;
     this.fill.classList.toggle('low', this.chakra < COST);
@@ -337,5 +376,27 @@ export class Amaterasu extends Chapter {
     super.resize(w, hh);
     const portrait = w / hh < 0.9;
     this.camBase.set(0, portrait ? 9 : 5.8, portrait ? 18 : 12.5);
+    this._placeItachi(portrait);
+  }
+
+  /**
+   * Stands Itachi on the ground at a fixed spot on screen — right of centre, lower half —
+   * so he never drifts under the chapter nav (right edge) or the intro text (left), whatever the window size.
+   */
+  _placeItachi(portrait) {
+    if (!this.itachi) return;
+    const cam = this.camera.clone();
+    cam.position.copy(this.camBase);
+    cam.lookAt(this.look);
+    cam.updateMatrixWorld();
+    const ndc = portrait ? new THREE.Vector2(0.22, -0.05) : new THREE.Vector2(0.18, -0.32);
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndc, cam);
+    const hit = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3());
+    if (!hit) return;
+    const root = this.itachi.root;
+    root.position.set(hit.x, 0, hit.z);
+    // face the heart of the field where the flames burn
+    root.rotation.y = Math.atan2(-1 - hit.x, -4 - hit.z);
   }
 }

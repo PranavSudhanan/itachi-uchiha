@@ -1,9 +1,11 @@
 ﻿import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
+import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { CrowBurst } from '../objects/Crow.js';
 import { createItachiFigure } from '../objects/Figure.js';
 import { kunaiGeometry } from '../objects/Weapons.js';
+import { SusanooBody } from '../objects/SusanooBody.js';
 import { NOISE_GLSL, shared, drawTexture, rand, damp, clamp, TAU, h, lerp, toScreen, glowTexture } from '../core/utils.js';
 
 const STAGES = [
@@ -13,75 +15,18 @@ const STAGES = [
   ['Warrior', 'Stage III — muscle and a long-nosed, tengu-like face take shape.'],
   ['Armoured', 'Armoured Susanoo — cloaked like a mountain ascetic, wielding the Totsuka Blade and the Yata Mirror.'],
 ];
-const HIT_RADIUS = [0.7, 2.4, 3.1, 3.7, 4.2];
+/** The final stage when the Perfect Susanoo model is present. */
+const PERFECT = ['Perfect', 'Perfect Susanoo — a towering winged warrior in full form, wielding the Totsuka Blade and the Yata Mirror.'];
+const HIT_RADIUS = [0.7, 3.0, 3.3, 3.8, 4.4];
+const V0 = new THREE.Vector3();
 
-function susanooMaterial({ color = 0xff6a2a, color2 = 0xff1a28, power = 1, reveal = null } = {}) {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      uTime: shared.uTime,
-      uColor: { value: new THREE.Color(color) },
-      uColor2: { value: new THREE.Color(color2) },
-      uReveal: reveal || { value: 0 },
-      uPower: { value: power },
-    },
-    transparent: true,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    vertexShader: /* glsl */ `
-      ${NOISE_GLSL}
-      uniform float uTime;
-      varying vec3 vN; varying vec3 vV; varying vec3 vW;
-      void main(){
-        vec4 w = modelMatrix * vec4(position, 1.0);
-        float n = snoise(w.xyz * 0.9 + vec3(0.0, uTime * 0.8, 0.0));
-        w.xyz += normalize(mat3(modelMatrix) * normal) * n * 0.05;
-        vW = w.xyz;
-        vec4 mv = viewMatrix * w;
-        vN = normalize(normalMatrix * normal);
-        vV = normalize(-mv.xyz);
-        gl_Position = projectionMatrix * mv;
-      }`,
-    fragmentShader: /* glsl */ `
-      ${NOISE_GLSL}
-      uniform float uTime; uniform vec3 uColor; uniform vec3 uColor2; uniform float uReveal; uniform float uPower;
-      varying vec3 vN; varying vec3 vV; varying vec3 vW;
-      void main(){
-        float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.7);
-        float flow = snoise(vW * vec3(1.2, 0.6, 1.2) + vec3(0.0, -uTime * 1.6, 0.0)) * 0.5 + 0.5;
-        float bands = smoothstep(0.55, 0.95, flow);
-        float cut = mix(-1.5, 12.5, uReveal);
-        float vis = 1.0 - smoothstep(cut - 0.6, cut, vW.y);
-        float edge = (1.0 - smoothstep(0.0, 0.7, abs(vW.y - cut))) * step(0.001, uReveal) * step(uReveal, 0.999);
-        vec3 col = mix(uColor2, uColor, fres) * (0.25 + fres * 1.4 + bands * 0.5) + edge * vec3(1.0, 0.85, 0.6) * 2.5;
-        float a = (0.04 + fres * 0.5 + bands * 0.08) * vis * uPower + edge * 0.5;
-        gl_FragColor = vec4(col, clamp(a, 0.0, 1.0));
-        #include <colorspace_fragment>
-      }`,
-  });
-}
-
-function limb(a, b, r1, r2, mat, seg = 12) {
-  const dir = new THREE.Vector3().subVectors(b, a);
-  const len = dir.length();
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(r2, r1, len, seg, 4, true), mat);
-  m.position.copy(a).addScaledVector(dir, 0.5);
-  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-  return m;
-}
-function ball(p, r, mat, scale = null) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), mat);
-  m.position.copy(p);
-  if (scale) m.scale.set(...scale);
-  return m;
-}
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 
 export class Susanoo extends Chapter {
   constructor(app) {
     super(app, { id: 'susanoo', title: 'Susanoo', jp: '須佐能乎' });
     this.shiftView = 0.12;
-    this.bloom = { strength: 0.9, radius: 0.6, threshold: 0.55 };
+    this.bloom = { strength: 0.8, radius: 0.55, threshold: 0.72 };
     this.mood = 'tension';
     this.game = { on: false };
     this.enemies = [];
@@ -106,7 +51,7 @@ export class Susanoo extends Chapter {
     s.fog = new THREE.FogExp2(0x0a0306, 0.035);
     s.add(new THREE.HemisphereLight(0x604050, 0x100508, 0.8));
     this.glowLight = new THREE.PointLight(0xff4a20, 0, 30, 1.2);
-    this.glowLight.position.set(0, 3, 1);
+    this.glowLight.position.set(0, 5, -1.5);
     s.add(this.glowLight);
     const key = new THREE.DirectionalLight(0xffe8e0, 0.8);
     key.position.set(3, 8, 6);
@@ -140,137 +85,18 @@ export class Susanoo extends Chapter {
     this.figure = createItachiFigure();
     s.add(this.figure);
 
-    // ---- Susanoo ----
-    this.mats = [null,
-      susanooMaterial({ color: 0xff7a30, color2: 0xff2020 }),
-      susanooMaterial({ color: 0xff6a28, color2: 0xff1a20 }),
-      susanooMaterial({ color: 0xff5a24, color2: 0xe0101c }),
-      susanooMaterial({ color: 0xff4a20, color2: 0xc8081a }),
-    ];
-    const M = this.mats;
-    this.bladeMat = susanooMaterial({ color: 0xfff0b0, color2: 0xff8a30, power: 1.8, reveal: M[4].uniforms.uReveal });
-    this.mirrorMat = susanooMaterial({ color: 0xffb070, color2: 0xff3020, power: 1.3, reveal: M[4].uniforms.uReveal });
-
-    const S = new THREE.Group();
-    s.add(S);
-    this.susanoo = S;
-
-    // stage 1: spine + ribcage
-    const spineCurve = new THREE.CatmullRomCurve3([V(0, 0.6, -1.0), V(0, 2.2, -1.25), V(0, 3.8, -1.1), V(0, 5.3, -0.7)]);
-    S.add(new THREE.Mesh(new THREE.TubeGeometry(spineCurve, 40, 0.2, 8), M[1]));
-    for (let i = 0; i < 7; i++) {
-      const y = 1.7 + i * 0.5;
-      const r = 1.35 + Math.sin(((i + 1) / 8) * Math.PI) * 0.75;
-      const gap = 0.7 + (i / 7) * 0.4;
-      const rib = new THREE.Mesh(new THREE.TorusGeometry(r, 0.09 + (6 - i) * 0.008, 8, 48, TAU - gap * 2), M[1]);
-      rib.rotation.set(Math.PI / 2 + 0.18, 0, Math.PI / 2 + gap);
-      rib.scale.set(1, 0.82, 1);
-      rib.position.set(0, y, -0.45);
-      S.add(rib);
-    }
-    // stage 1 also shows a pair of skeletal hands at the base of the ribcage
-    S.add(ball(V(0, 5.1, -0.7), 0.3, M[1]));
-
-    // stage 2: skull, neck, clavicles
-    S.add(ball(V(0, 6.45, -0.25), 0.72, M[2], [0.95, 1.1, 1.05]));
-    S.add(ball(V(0, 5.95, 0.05), 0.42, M[2], [1.1, 0.55, 1.2]));
-    for (const sx of [-1, 1]) S.add(ball(V(sx * 0.26, 6.5, 0.4), 0.13, M[2]));
-    for (let i = 0; i < 3; i++) S.add(ball(V(0, 5.35 + i * 0.18, -0.55), 0.14, M[2]));
-    for (const sx of [-1, 1]) S.add(limb(V(0, 5.2, -0.45), V(sx * 2.2, 5.0, -0.3), 0.14, 0.12, M[2]));
-
-    // stage 3: torso, head, skirt
-    const torsoProfile = [[0.05, 0.55], [1.3, 0.8], [1.7, 1.6], [2.0, 2.8], [2.3, 4.0], [2.25, 4.7], [1.6, 5.3], [0.75, 5.65], [0.55, 5.95]].map(([x, y]) => new THREE.Vector2(x, y));
-    const torso = new THREE.Mesh(new THREE.LatheGeometry(torsoProfile, 32), M[3]);
-    torso.scale.z = 0.72;
-    torso.position.z = -0.35;
-    S.add(torso);
-    S.add(ball(V(0, 6.55, -0.2), 0.98, M[3], [0.9, 1.1, 1]));
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.22, 1.4, 12, 3, true), M[3]);
-    nose.rotation.x = Math.PI / 2;
-    nose.position.set(0, 6.4, 1.2);
-    S.add(nose);
-    for (const sx of [-1, 1]) {
-      const horn = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.2, 10, 2, true), M[3]);
-      horn.position.set(sx * 0.5, 7.5, -0.35);
-      horn.rotation.set(-0.45, 0, -sx * 0.45);
-      S.add(horn);
-    }
-    const skirt = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 2.7, 1.3, 32, 3, true), M[3]);
-    skirt.position.set(0, 0.55, -0.35);
-    skirt.scale.z = 0.8;
-    S.add(skirt);
-
-    // stage 4: mantle, hood, pauldrons
-    const mantleProfile = [[1.0, 6.2], [2.2, 5.8], [3.0, 5.1], [3.3, 3.9], [3.45, 2.3], [3.7, 0.9]].map(([x, y]) => new THREE.Vector2(x, y));
-    const mantle = new THREE.Mesh(new THREE.LatheGeometry(mantleProfile, 40, 0.9, TAU - 1.8), M[4]);
-    mantle.position.z = -0.4;
-    mantle.scale.z = 0.85;
-    S.add(mantle);
-    const hood = new THREE.Mesh(new THREE.SphereGeometry(1.4, 28, 14, 0, TAU, 0, Math.PI * 0.55), M[4]);
-    hood.position.set(0, 6.65, -0.4);
-    hood.rotation.x = -0.25;
-    S.add(hood);
-
-    // arms (pivot at shoulders)
-    const buildArm = (side) => {
-      const arm = new THREE.Group();
-      arm.position.set(side * 2.2, 5.0, -0.3);
-      const Sh = V(0, 0, 0), E = V(side * 0.9, -1.5, 0.4), Hd = side < 0 ? V(side * 0.4, -1.7, 1.9) : V(side * 0.3, -0.9, 1.9);
-      // skeleton
-      arm.add(ball(Sh, 0.28, M[2]), ball(E, 0.22, M[2]));
-      arm.add(limb(Sh, E, 0.15, 0.13, M[2]), limb(E, Hd, 0.13, 0.11, M[2]));
-      arm.add(ball(Hd, 0.28, M[2]));
-      for (let f = 0; f < 3; f++) arm.add(limb(Hd, Hd.clone().add(V(side * 0.1 * (f - 1), 0.3 - f * 0.15, 0.45)), 0.05, 0.04, M[2], 6));
-      // flesh
-      arm.add(limb(Sh, E, 0.62, 0.5, M[3]), limb(E, Hd, 0.5, 0.42, M[3]), ball(Hd, 0.5, M[3]));
-      // armour
-      const paul = new THREE.Mesh(new THREE.SphereGeometry(1.05, 20, 10, 0, TAU, 0, Math.PI * 0.5), M[4]);
-      paul.position.copy(Sh).add(V(side * 0.15, 0.1, 0));
-      paul.rotation.z = -side * 0.5;
-      arm.add(paul);
-      arm.add(limb(E.clone().lerp(Hd, 0.15), E.clone().lerp(Hd, 0.8), 0.6, 0.55, M[4]));
-      arm.userData.hand = Hd;
-      S.add(arm);
-      return arm;
-    };
-    this.rightArm = buildArm(-1);
-    this.leftArm = buildArm(1);
-
-    // gourd + Totsuka Blade in the right hand
-    const hand = this.rightArm.userData.hand;
-    const gourdProfile = [[0.01, -0.55], [0.38, -0.4], [0.42, -0.15], [0.2, 0.1], [0.3, 0.3], [0.25, 0.5], [0.1, 0.62], [0.09, 0.75]].map(([x, y]) => new THREE.Vector2(x, y));
-    const gourd = new THREE.Mesh(new THREE.LatheGeometry(gourdProfile, 20), this.mirrorMat);
-    gourd.position.copy(hand).add(V(0, 0.2, 0.1));
-    this.rightArm.add(gourd);
-    const bladeDir = V(-0.45, 1, 0.55).normalize();
-    const blade = new THREE.Mesh(new THREE.ConeGeometry(0.26, 7, 14, 30, true), this.bladeMat);
-    const gTop = gourd.position.clone().add(V(0, 0.75, 0));
-    blade.position.copy(gTop).addScaledVector(bladeDir, 3.5);
-    blade.quaternion.setFromUnitVectors(V(0, 1, 0), bladeDir);
-    this.rightArm.add(blade);
-    this.bladeTipLocal = gTop.clone().addScaledVector(bladeDir, 7);
-
-    // Yata Mirror in the left hand
-    const mirror = new THREE.Group();
-    mirror.position.copy(this.leftArm.userData.hand).add(V(0.2, 0.3, 0.45));
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 0.12, 48, 1, false), this.mirrorMat);
-    disc.rotation.x = Math.PI / 2;
-    mirror.add(disc);
-    [1.6, 1.15, 0.6].forEach((r) => {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.06, 8, 64), this.bladeMat);
-      ring.position.z = 0.08;
-      mirror.add(ring);
-    });
-    for (let i = 0; i < 3; i++) {
-      const mg = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 8), this.bladeMat);
-      const a = (i / 3) * TAU;
-      mg.position.set(Math.cos(a) * 0.88, Math.sin(a) * 0.88, 0.1);
-      mirror.add(mg);
-    }
-    mirror.rotation.y = -0.35;
-    this.leftArm.add(mirror);
-    this.mirror = mirror;
-
+    // ---- Susanoo (built in objects/SusanooBody.js, modelled on the anime) ----
+    this.body = new SusanooBody({ low: this.app.low });
+    s.add(this.body.group);
+    this.susanoo = this.body.group;
+    this.mats = this.body.mats;
+    this.bladeMat = this.body.bladeMat;
+    this.mirrorMat = this.body.mirrorMat;
+    this.rightArm = this.body.rightArm;
+    this.leftArm = this.body.leftArm;
+    this.mirror = this.body.mirror;
+    this.bladeTipLocal = this.body.bladeTipLocal;
+    this.stages = this.body.perfect ? [...STAGES.slice(0, 4), PERFECT] : STAGES;
     // FX
     this.embers = new ParticlePool({ count: this.app.low ? 500 : 1200, buoyancy: 1.2, turbulence: 1.5, drag: 0.6 });
     this.sparks = new ParticlePool({ count: 600, gravity: -8, drag: 0.8 });
@@ -306,11 +132,19 @@ export class Susanoo extends Chapter {
         ['tap', '<b>Tap</b> to throw a kunai · <b>drag</b> to orbit'],
       ])],
     });
+    // CC BY 4.0 attribution for the Perfect Susanoo model (stage IV)
+    if (this.body.perfect) {
+      this.ui.append(h('a.model-credit', {
+        href: 'https://sketchfab.com/3d-models/perfect-susanoo-c1ef38744eb64891b26a6f41aac1b199',
+        target: '_blank', rel: 'noopener',
+        html: 'Perfect Susanoo model: “Perfect susanoo” by wahidinesport, CC BY 4.0',
+      }));
+    }
     this.stagePill = h('b', { text: 'Itachi' });
     this.stageHud = h('div.hud-corner', {}, h('div.pill', {}, 'Stage', this.stagePill));
     this.ui.append(this.stageHud);
     this.stageBtns = STAGES.map(([name], i) => this.button(i === 0 ? 'Itachi' : ['I', 'II', 'III', 'IV'][i - 1], () => this.setStage(i)));
-    this.stageBtns.forEach((b, i) => b.setAttribute('title', STAGES[i][0]));
+    this.stageBtns.forEach((b, i) => b.setAttribute('title', this.stages[i][0]));
     this.controlsEl = h('div.controls', {},
       h('div.group', {}, h('span.label', { text: 'Stage' }), ...this.stageBtns),
       this.button('⚔ Hold the Line', () => this.startGame(), 'btn-primary'),
@@ -345,10 +179,10 @@ export class Susanoo extends Chapter {
     const prev = this.stage;
     this.stage = i;
     this.stageBtns.forEach((b, k) => b.classList.toggle('active', k === i));
-    this.stagePill.textContent = STAGES[i][0];
+    this.stagePill.textContent = this.stages[i][0];
     if (!silent) {
-      this.app.toast(STAGES[i][1], 3600);
-      if (i > prev) { this.app.sfx.susanoo(); this.shake = 0.5; this.app.bleed(); }
+      this.app.toast(this.stages[i][1], 3600);
+      if (i > prev) { if (prev === 0) voice.say('susanoo', { cooldown: 6 }); this.app.sfx.susanoo(); this.shake = 0.5; this.app.bleed(); this.manifestT = 1.6; }
       else this.app.sfx.whoosh();
       if (i > 0) this.embers.burst(V(0, 2, 0), 150, { speed: 7, up: 3, life: [0.6, 1.6], size: [0.06, 0.18], colors: this.emberColors });
     }
@@ -365,17 +199,20 @@ export class Susanoo extends Chapter {
   }
 
   slash(fromGesture = false) {
-    if (this.stage < 4) { this.app.toast('Manifest the <b>Armoured Susanoo</b> (IV) to wield the Totsuka Blade.'); return; }
+    if (this.stage < 4) { this.app.toast(`Manifest the <b>${this.stages[4][0]} Susanoo</b> (IV) to wield the Totsuka Blade.`); return; }
     if (this.slashT >= 0 && !fromGesture) return;
     this.slashT = fromGesture ? 0.36 : 0;
+    this.slashPoseT = 0.75;
     this.app.sfx.slash();
+    if (!this.game.on) voice.say('totsuka', { cooldown: 12 });
     this.shake = Math.max(this.shake, 0.5);
   }
 
   raiseMirror() {
-    if (this.stage < 4) { this.app.toast('Manifest the <b>Armoured Susanoo</b> (IV) to raise the Yata Mirror.'); return; }
+    if (this.stage < 4) { this.app.toast(`Manifest the <b>${this.stages[4][0]} Susanoo</b> (IV) to raise the Yata Mirror.`); return; }
     this.mirrorT = 3.5;
     this.app.sfx.chime();
+    voice.say('yata', { cooldown: 12 });
     this.app.toast('<b>八咫鏡 · Yata Mirror</b> raised — attacks will be reflected.', 2500);
   }
 
@@ -385,7 +222,7 @@ export class Susanoo extends Chapter {
     const dir = this.ray.ray.direction.clone();
     m.position.copy(this.camera.position).addScaledVector(dir, 1.5);
     // aim assist: curve toward Itachi if the ray passes near the Susanoo
-    const center = V(0, this.stage ? 3.5 : 1.1, 0);
+    const center = this._core().clone();
     const toC = center.clone().sub(m.position).normalize();
     if (dir.dot(toC) > 0.93) dir.lerp(toC, 0.5).normalize();
     const vel = dir.multiplyScalar(30);
@@ -403,8 +240,8 @@ export class Susanoo extends Chapter {
       k.m.position.addScaledVector(k.vel, dt);
       k.m.lookAt(k.m.position.clone().add(k.vel));
       if (!k.bounced) {
-        const center = V(0, this.stage ? 3.5 : 1.0, 0);
-        const r = HIT_RADIUS[this.stage];
+        const center = this._core().clone();
+        const r = this._hitRadius();
         const d = k.m.position.distanceTo(center);
         if (d < r || (this.slashT > 0.3 && this.slashT < 0.7 && d < 8)) {
           k.bounced = true;
@@ -569,6 +406,7 @@ export class Susanoo extends Chapter {
     this.pitchT = 0.14;
     this.app.sfx.setMood('battle');
     this.app.sfx.susanoo();
+    voice.say('susanoo', { cooldown: 6 });
     this.app.bleed();
   }
 
@@ -684,7 +522,7 @@ export class Susanoo extends Chapter {
       e.g.lookAt(0, 0, 0);
     }
 
-    const center = V(0, 3.8, 0);
+    const center = this.body.perfect ? V(0, this.body.coreY, 0) : V(0, 3.8, 0);
     for (let i = this.shots.length - 1; i >= 0; i--) {
       const s = this.shots[i];
       s.life -= dt;
@@ -692,7 +530,7 @@ export class Susanoo extends Chapter {
       if (s.type === 'fire') {
         this.embers.emit({ x: s.m.position.x, y: s.m.position.y, z: s.m.position.z, vx: rand(-0.5, 0.5), vy: rand(0, 1), vz: rand(-0.5, 0.5), life: 0.5, size: rand(0.15, 0.3), color: this.emberColors[Math.floor(rand(0, 3))] });
       }
-      if (!s.reflected && s.m.position.distanceTo(center) < 4.4) {
+      if (!s.reflected && s.m.position.distanceTo(center) < (this.body.perfect ? this.body.coreR : 4.4)) {
         if (mirrorUp) {
           s.reflected = true;
           const target = s.owner.g.position.clone().add(V(0, 2, 0));
@@ -772,6 +610,13 @@ export class Susanoo extends Chapter {
     }
   }
 
+  /** Centre of whatever protects Itachi right now (the Perfect Susanoo stands taller). */
+  _core() {
+    const perfect = this.stage >= 4 && this.body.perfect;
+    return V0.set(0, this.stage ? (perfect ? this.body.coreY : 3.5) : 1.1, 0);
+  }
+  _hitRadius() { return this.stage >= 4 && this.body.perfect ? this.body.coreR : HIT_RADIUS[this.stage]; }
+
   swipe(s) {
     const vertical = Math.abs(s.dy) > Math.abs(s.dx) * 1.6;
     if (vertical && !this.game.on) {
@@ -783,8 +628,8 @@ export class Susanoo extends Chapter {
       return true;
     }
     if (this.stage < 4) {
-      if (!this.game.on) this.app.toast('Swipe <b>up</b> to manifest the Armoured Susanoo, then slash.', 2200);
-      return !this.game.on && false;
+      if (!this.game.on) this.app.toast(`Swipe <b>up</b> to manifest the ${this.stages[4][0]} Susanoo, then slash.`, 2200);
+      return false;
     }
     if (!this.game.on) { this.yawT += s.dx * 0.006; this.pitchT = clamp(this.pitchT - s.dy * 0.004, -0.05, 0.8); }
     this.slash(true);
@@ -810,13 +655,36 @@ export class Susanoo extends Chapter {
       // older layers dim once a newer layer covers them, so the silhouette stays readable
       if (i < 4) {
         const pw = this.mats[i].uniforms.uPower;
-        pw.value = damp(pw.value, this.stage > i ? 0.35 : 1, 3, dt);
+        // the Perfect Susanoo is a whole new body: the inner layers fade out entirely beneath it
+        const covered = this.stage >= 4 && this.body.perfect ? 0 : this.body.hasSculpt ? 0.16 : 0.35;
+        pw.value = damp(pw.value, this.stage > i ? covered : 1, 3, dt);
       }
     }
     const strength = this.mats[1].uniforms.uReveal.value;
-    this.glowLight.intensity = strength * (40 + this.stage * 15) + Math.sin(t * 9) * 3 * strength;
-    this.groundMat.emissiveIntensity = 0.1 + strength * 0.5;
-    this.bloom.strength = 0.6 + strength * 0.4;
+    this.glowLight.intensity = strength * (14 + this.stage * 4) + Math.sin(t * 9) * 2 * strength;
+    this.groundMat.emissiveIntensity = 0.1 + strength * 0.3;
+    this.bloom.strength = 0.55 + strength * 0.3;
+
+    // Itachi himself: releases chakra as each stage manifests, bleeds from the Mangekyō,
+    // and mirrors the Susanoo's slash and guard with his own arms
+    const fm = this.figure.userData.model;
+    if (fm) {
+      this.manifestT = Math.max(0, (this.manifestT || 0) - dt);
+      this.slashPoseT = Math.max(0, (this.slashPoseT || 0) - dt);
+      const want = this.mirrorT > 0 && this.stage >= 4 ? 'guard'
+        : this.slashPoseT > 0 ? 'slash'
+          : this.manifestT > 0 ? 'manifest'
+            : this.stage > 0 ? 'ready' : 'idle';
+      if (fm.poseName !== want) fm.setPose(want, {}, want === 'slash' ? 18 : 6);
+      const eyes = this.stage > 0 ? 'mangekyo' : 3;
+      if (this._eyes !== eyes) { this._eyes = eyes; fm.setEyes(eyes); fm.setBleeding(this.stage > 0); }
+      fm.update(dt, t);
+    }
+    const rise = this.body.perfect ? this.mats[4].uniforms.uReveal.value : 0;
+    this.figure.position.y = rise * (this.body.coreY - 0.9) + (rise > 0.01 ? Math.sin(t * 1.4) * 0.06 * rise : 0);
+
+    this.body.viewer = this.camera.position;
+    this.body.update(dt, t);
 
     // breathing idle motion
     this.susanoo.position.y = Math.sin(t * 1.2) * 0.08;
@@ -844,7 +712,7 @@ export class Susanoo extends Chapter {
 
     // hold = Yata Mirror (while held)
     const hold = this.trackHold(0.3, this.stage >= 4 && (!this.game.on || this.game.chakra > 5));
-    if (hold.fired) { this.app.sfx.chime(); this.mirrorMat.uniforms.uPower.value = 4; }
+    if (hold.fired) { this.app.sfx.chime(); if (!this.game.on) voice.say('yata', { cooldown: 12 }); this.mirrorMat.uniforms.uPower.value = 4; }
     if (this._holdFired && this.app.pointer.down && this.stage >= 4) this.mirrorT = Math.max(this.mirrorT, 0.15);
     if (this.game.on) this._updateGame(dt, t);
     this._updateStorm(dt);
@@ -871,8 +739,9 @@ export class Susanoo extends Chapter {
     this.yaw = damp(this.yaw, this.yawT, 5, dt);
     this.pitch = damp(this.pitch, this.pitchT, 5, dt);
     const portrait = this.app.width / this.app.height < 0.9;
-    const dist = this.game.on ? (portrait ? 34 : 25) : (portrait ? 27 : 19) - (this.stage === 0 ? (portrait ? 12 : 9) : 0);
-    const ly = this.stage === 0 ? 1.2 : 4.4;
+    const tall = this.stage >= 4 && this.body.perfect ? 1 : 0;
+    const dist = (this.game.on ? (portrait ? 34 : 25) : (portrait ? 27 : 19) - (this.stage === 0 ? (portrait ? 12 : 9) : 0)) + tall * (portrait ? 8 : 5);
+    const ly = this.stage === 0 ? 1.2 : 4.4 + tall * 1.4;
     this.camDist = damp(this.camDist || dist, dist, 2, dt);
     this.camLook = damp(this.camLook || ly, ly, 2, dt);
     this.shake = damp(this.shake, 0, 5, dt);

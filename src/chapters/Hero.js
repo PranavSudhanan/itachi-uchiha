@@ -1,5 +1,6 @@
 ﻿import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
+import { voice } from '../core/Voice.js';
 import { SharinganEye } from '../objects/Eye.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { featherTexture, glowTexture, drawTexture, rand, damp, TAU, h, pointerOnPlane } from '../core/utils.js';
@@ -187,7 +188,9 @@ export class Hero extends Chapter {
     const [name, jp, text] = MODE_INFO[mode];
     this.modePill.innerHTML = `Eye <b>${name}</b>`;
     this.app.toast(`<b>${jp}</b> · ${name}<br>${text}`);
-    this.app.sfx.awaken();
+    if (mode === 'mangekyo') { this.app.sfx.mangekyo(); voice.say('mangekyo', { subtitle: false }); }
+    else if (mode) { this.app.sfx.sharingan(); voice.say('sharingan', { subtitle: false }); }
+    else this.app.sfx.whoosh();
     this.kick = 1;
     if (mode === 'mangekyo') this.app.bleed();
     // blow feathers away from the eye

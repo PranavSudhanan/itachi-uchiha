@@ -1,10 +1,13 @@
 ﻿import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
+import { voice } from '../core/Voice.js';
 import { createCrowGeometry, createCrowMaterial, addPhases } from '../objects/Crow.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { makeSky, glowTexture, rand, damp, TAU, h, pointerOnPlane, sampleDrawing, drawCloud, toScreen, featherTexture } from '../core/utils.js';
 
 const BOUNDS = new THREE.Vector3(15, 7.5, 8);
+/** Integer key for the spatial hash (no per-frame string allocation). */
+const cellKey = (x, y, z) => ((x + 256) * 512 + (y + 256)) * 512 + (z + 256);
 
 const SHAPES = {
   sharingan: (x, w, hh) => {
@@ -256,7 +259,8 @@ export class Crows extends Chapter {
   }
 
   _foundShisui() {
-    this.app.sfx.awaken();
+    this.app.sfx.mangekyo();
+    voice.say('kotoamatsukami', { cooldown: 10, subtitle: false });
     this.app.toast(this.found
       ? '<b>別天神 · Kotoamatsukami</b><br>Shisui\'s eye is still watching over the Leaf.'
       : '<b>You found Shisui\'s crow!</b><br>Itachi hid Shisui\'s Mangekyō — and its Kotoamatsukami genjutsu — inside a crow he gave to Naruto.', 6000);
@@ -266,10 +270,10 @@ export class Crows extends Chapter {
   }
 
   _rebuildGrid() {
-    this.grid.clear();
+    for (const arr of this.grid.values()) arr.length = 0;
     const c = this.cell;
     this.birds.forEach((b, i) => {
-      const k = `${Math.floor(b.p.x / c)},${Math.floor(b.p.y / c)},${Math.floor(b.p.z / c)}`;
+      const k = cellKey(Math.floor(b.p.x / c), Math.floor(b.p.y / c), Math.floor(b.p.z / c));
       let arr = this.grid.get(k);
       if (!arr) this.grid.set(k, (arr = []));
       arr.push(i);
@@ -301,7 +305,7 @@ export class Crows extends Chapter {
         let n = 0;
         const cx = Math.floor(b.p.x / c), cy = Math.floor(b.p.y / c), cz = Math.floor(b.p.z / c);
         for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
-          const arr = this.grid.get(`${cx + x},${cy + y},${cz + z}`);
+          const arr = this.grid.get(cellKey(cx + x, cy + y, cz + z));
           if (!arr) continue;
           for (const j of arr) {
             if (j === i) continue;

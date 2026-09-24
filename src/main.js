@@ -9,6 +9,9 @@ import { Amaterasu } from './chapters/Amaterasu.js';
 import { Genjutsu } from './chapters/Genjutsu.js';
 import { Susanoo } from './chapters/Susanoo.js';
 import { Quiz } from './chapters/Quiz.js';
+import { preloadItachi } from './objects/ItachiGLB.js';
+import { setItachiEnvironment } from './objects/ItachiFace.js';
+import { preloadSusanoo } from './objects/SusanooBody.js';
 
 const loader = document.getElementById('loader');
 const bar = document.getElementById('loader-progress');
@@ -44,8 +47,12 @@ async function boot() {
     ]);
   } catch (_) { /* fall back to system fonts */ }
   progress(0.35);
+  // load the Itachi and Susanoo models (public/models/*.glb) when present; otherwise built-in versions are used
+  await Promise.all([preloadItachi(), preloadSusanoo()]);
+  progress(0.5);
 
   const app = new App();
+  setItachiEnvironment(app.renderer);
   window.__itachi = app;
   [Hero, Chronicle, Relics, Training, Precognition, Crows, Amaterasu, Genjutsu, Susanoo, Quiz].forEach((C) => app.add(new C(app)));
   app.buildNav();

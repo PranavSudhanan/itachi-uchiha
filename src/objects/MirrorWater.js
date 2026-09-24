@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { shared } from '../core/utils.js';
 
@@ -63,7 +63,7 @@ export function createMirrorWater({ size = 160, resolution = 0.5, color = 0x7f8a
       }`,
   };
 
-  const dpr = Math.min(window.devicePixelRatio, 2);
+  const dpr = Math.min(window.devicePixelRatio, 1);
   const water = new Reflector(new THREE.CircleGeometry(size / 2, 64), {
     color,
     textureWidth: Math.round(window.innerWidth * dpr * resolution),

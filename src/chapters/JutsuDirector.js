@@ -1,9 +1,11 @@
-﻿import * as THREE from 'three';
+﻿import { voice, LINES } from '../core/Voice.js';
+import * as THREE from 'three';
 import { ParticlePool } from '../objects/Particles.js';
 import { FlameField } from '../objects/FlameField.js';
-import { createItachiFigure } from '../objects/Figure.js';
+import { createItachi } from '../objects/ItachiGLB.js';
 import { createCrowGeometry, createCrowMaterial, addPhases } from '../objects/Crow.js';
 import { shurikenGeometry } from '../objects/Weapons.js';
+import { HAND_SIGNS } from '../data/content.js';
 import { NOISE_GLSL, shared, drawTexture, glowTexture, rand, damp, clamp, lerp, easeInOut, TAU, h } from '../core/utils.js';
 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
@@ -118,17 +120,20 @@ export class JutsuDirector {
     this.time = 0;
     this.shake = 0;
     this.lookV = V(0, 1.9, -10);
+    this.T0 = 0;
+    this.weaveKeys = [];
     this._build();
   }
 
   get I() { return this.itachi.position; }
-  get mouth() { return this.itachi.position.clone().add(V(0, 1.63, -0.22)); }
+  get mouth() { return this.model.mouthWorld(new THREE.Vector3()); }
 
   _build() {
     const s = this.scene;
     const low = this.app.low;
 
-    this.itachi = createItachiFigure();
+    this.model = createItachi({ castShadow: !this.app.low });
+    this.itachi = this.model.root;
     this.itachi.position.set(-1.3, 0, -1.4);
     this.itachi.rotation.y = Math.PI;
     this.itachi.visible = false;
@@ -217,14 +222,17 @@ export class JutsuDirector {
     if (!ok) b.classList.add('bad');
     if (!this.itachi.visible) return;
     this.auraPulse = 1;
-    const hands = this.I.clone().add(V(0, 1.25, -0.35));
+    if (ok) { this.model.setPose('sign', { sign: sign.key }, 16); this.signHold = 2.4; }
+    const hands = this.model.handWorld('r', new THREE.Vector3());
     this.chakra.burst(hands, ok ? 26 : 40, { speed: ok ? 1.6 : 3, up: 0.6, life: [0.3, 0.7], size: [0.04, 0.1], colors: ok ? this.chakraCols : [new THREE.Color(0x8888aa)] });
   }
 
   /* ---------------- cinematic helpers ---------------- */
 
+  /** Camera path. Key times are relative to the technique; the weave close-up is prepended automatically. */
   _track(keys) {
-    this.cam = { t: 0, keys: [{ t: 0, pos: this.camera.position.clone(), look: this.lookV.clone() }, ...keys] };
+    const shifted = keys.map((k) => ({ ...k, t: k.t + this.T0 }));
+    this.cam = { t: 0, keys: [{ t: 0, pos: this.camera.position.clone(), look: this.lookV.clone() }, ...this.weaveKeys, ...shifted] };
   }
 
   _camUpdate(dt) {
@@ -252,7 +260,8 @@ export class JutsuDirector {
     return true;
   }
 
-  _at(t, fn) { this.events.push({ t, fn }); }
+  /** Schedules an event 	 seconds after the technique starts (i.e. after the hand-sign weave). */
+  _at(t, fn) { this.events.push({ t: t + this.T0, fn }); }
 
   _titleCard(j) {
     const el = this.title;
@@ -281,6 +290,7 @@ export class JutsuDirector {
     Object.assign(this.ch.bloom, { strength: 0.75, threshold: 0.88, radius: 0.55 });
     this.app.sfx.setMood('battle');
     if (!this.itachi.visible) this.show(true);
+    this._planWeave(j);
     if (j.key === 'fireball') this._planFireball(j);
     else if (j.key === 'phoenix') this._planPhoenix(j);
     else this._planSummon(j);
@@ -294,11 +304,67 @@ export class JutsuDirector {
     this.ball.visible = false;
     this.crowMesh.visible = false;
     this.seal.visible = false;
-    this.itachi.scale.y = 1;
-    this.itachi.rotation.x = 0;
+    this.model.setPose('idle', {}, 4);
     this.ch.ui.classList.remove('casting');
     if (this._bloomSave) Object.assign(this.ch.bloom, this._bloomSave);
     this.app.sfx.setMood(this.ch.mood);
+  }
+
+  /* ---------------- hand-sign weave (shared by every jutsu) ---------------- */
+
+  /**
+   * Itachi rapidly re-weaves the jutsu's full sequence in close-up, each sign a distinct hand pose,
+   * before the technique itself plays. Sets `T0`, the time the technique starts.
+   */
+  _planWeave(j) {
+    const step = 0.15;
+    const start = 0.5;
+    this.T0 = 0;
+    this.phase = 'weave';
+    const I = this.I.clone();
+    const hands = I.clone().add(V(0, 1.22, -0.25));
+    j.seq.forEach((key, k) => {
+      const sign = HAND_SIGNS.find((s) => s.key === key);
+      this._at(start + k * step, () => {
+        this.model.setPose('sign', { sign: key }, 30);
+        this.app.sfx.signTone(k);
+        this.auraPulse = 1;
+        this.chakra.burst(this.model.handWorld('r', new THREE.Vector3()), 14, { speed: 1.4, up: 0.5, life: [0.25, 0.5], size: [0.03, 0.08], colors: this.chakraCols });
+        this._flashSign(sign);
+      });
+    });
+    const end = start + j.seq.length * step + 0.12;
+    // the call: holding the last sign, he names the technique (close-up, Sharingan flaring)
+    const call = (LINES[j.key] ? LINES[j.key].dur : 1.2) + 0.3;
+    this._at(end - 0.05, () => {
+      this.phase = 'call';
+      voice.say(j.key, { subtitle: false }); // the title card shows the name
+      this._titleCard(j);
+      this.model.pulseEyes?.();
+      this.app.sfx.sharingan();
+      this.auraPulse = 1.4;
+    });
+    const face = I.clone().add(V(0, 1.63, -0.05));
+    // close-up on the hands from his front-left, drifting as the signs change
+    this.weaveKeys = [
+      // swing round his left side first so the camera never passes through him
+      { t: 0.22, pos: I.clone().add(V(-1.9, 1.7, 0.3)), look: I.clone().add(V(0, 1.3, 0)) },
+      { t: 0.5, pos: I.clone().add(V(-0.75, 1.42, -1.25)), look: hands },
+      { t: end, pos: I.clone().add(V(-0.55, 1.38, -1.05)), look: hands },
+      { t: end + 0.3, pos: I.clone().add(V(-0.3, 1.66, -0.85)), look: face },
+      { t: end + call, pos: I.clone().add(V(-0.22, 1.65, -0.68)), look: face },
+    ];
+    this.T0 = end + call;
+  }
+
+  _flashSign(sign) {
+    if (!sign) return;
+    const b = this.signFlash;
+    b.querySelector('b').textContent = sign.kanji;
+    b.querySelector('i').textContent = sign.name;
+    b.classList.remove('on', 'bad');
+    void b.offsetWidth;
+    b.classList.add('on');
   }
 
   /* ---------------- Great Fireball ---------------- */
@@ -315,11 +381,14 @@ export class JutsuDirector {
     ]);
     this.ballStart = this.mouth.add(V(0, 0, -0.8));
     this.ballEnd = V(this.I.x + 0.6, 2.8, -15);
-    this.phase = 'fb-gather';
-    this.app.sfx.inhale();
+    this._at(0, () => {
+      this.phase = 'fb-gather';
+      this.model.setPose('fire', { inhale: true }, 7);
+      this.app.sfx.inhale();
+    });
     this._at(0.95, () => {
       this.phase = 'fb-breath';
-      this._titleCard(j);
+      this.model.setPose('fire', {}, 14);
       this.app.sfx.roar(2.6);
       this.app.flash(0.15, 0xffb060);
       this.ball.visible = true;
@@ -362,7 +431,7 @@ export class JutsuDirector {
   }
 
   _updateFireball(dt) {
-    const t = this.time;
+    const t = this.time - this.T0;
     const mouth = this.mouth;
     if (this.phase === 'fb-gather') {
       // chakra and air rush into his mouth
@@ -372,7 +441,6 @@ export class JutsuDirector {
         this.chakra.emit({ x: p.x, y: p.y, z: p.z, vx: v.x, vy: v.y, vz: v.z, life: 0.4, size: rand(0.04, 0.09), color: this.chakraCols[i % 2], alpha: 1 });
       }
       this.auraTarget = 0.8 + t * 0.6;
-      this.itachi.rotation.x = -t * 0.12;
     }
     if (this.phase === 'fb-breath' || this.phase === 'fb-roll') {
       const breathing = this.phase === 'fb-breath';
@@ -380,7 +448,6 @@ export class JutsuDirector {
       if (breathing) {
         this.ball.position.lerpVectors(this.ballStart, V(this.ballStart.x + 0.3, 2.2, -6.5), easeInOut(k));
         this.ball.scale.setScalar(lerp(0.3, 2.7, Math.pow(k, 0.7)));
-        this.itachi.rotation.x = damp(this.itachi.rotation.x, 0.18, 6, dt);
         // flamethrower stream from the mouth feeding the ball
         const n = this.app.low ? 8 : 14;
         for (let i = 0; i < n; i++) {
@@ -396,7 +463,6 @@ export class JutsuDirector {
         const from = V(this.ballStart.x + 0.3, 2.2, -6.5);
         this.ball.position.lerpVectors(from, this.ballEnd, easeInOut(k));
         this.ball.scale.setScalar(lerp(2.7, 3.5, k));
-        this.itachi.rotation.x = damp(this.itachi.rotation.x, 0, 3, dt);
       }
       const r = this.ball.scale.x;
       this.ball.rotation.y += dt * 0.8;
@@ -442,16 +508,19 @@ export class JutsuDirector {
   _planPhoenix(j) {
     const I = this.I.clone();
     this._track([
-      { t: 0.6, pos: I.clone().add(V(2.4, 1.7, 1.2)), look: I.clone().add(V(0, 1.5, -1.5)) },
+      { t: 0.6, pos: I.clone().add(V(1.7, 1.7, -1.9)), look: I.clone().add(V(0, 1.55, 0)) },
       { t: 1.3, pos: I.clone().add(V(3.6, 2.4, 3.2)), look: V(0, 2, -8) },
       { t: 3.1, pos: I.clone().add(V(4.2, 3.4, 6)), look: V(0, 2, -11) },
       { t: 4.3, pos: this._baseCam(), look: this._baseLook() },
     ]);
-    this.phase = 'ph-gather';
-    this.app.sfx.inhale();
+    this._at(0, () => {
+      this.phase = 'ph-gather';
+      this.model.setPose('fire', { inhale: true }, 9);
+      this.app.sfx.inhale();
+    });
     this._at(0.6, () => {
       this.phase = 'ph-fire';
-      this._titleCard(j);
+      this.model.setPose('fire', {}, 14);
       const targets = this.ch.targets.map((tg) => ({ tg, pos: () => tg.disk.getWorldPosition(V(0, 0, 0)) }));
       const extra = [V(-6, 0.3, -8), V(6, 0.3, -9), V(0, 0.3, -14)].map((p) => ({ tg: null, pos: () => p }));
       [...targets, ...extra].forEach((tgt, i) => this._at(0.65 + i * 0.12, () => this._launchSmall(tgt)));
@@ -530,7 +599,10 @@ export class JutsuDirector {
       { t: 4.4, pos: C.clone().add(V(5.5, 0.8, 9)), look: C.clone().add(V(0, 5.5, 0)) },
       { t: 5.6, pos: this._baseCam(), look: this._baseLook() },
     ]);
-    this.phase = 'sm-crouch';
+    this._at(0, () => {
+      this.phase = 'sm-crouch';
+      this.model.setPose('summon', {}, 9);
+    });
     this.app.sfx.tone({ freq: 220, to: 330, type: 'triangle', dur: 0.4, vol: 0.06 });
     this._at(0.55, () => {
       this.phase = 'sm-seal';
@@ -541,7 +613,6 @@ export class JutsuDirector {
       this.app.sfx.boom();
       this.app.flash(0.3, 0xff3040);
       this.shake = 0.7;
-      this._titleCard(j);
       // dust ring along the ground
       for (let i = 0; i < 60; i++) {
         const a = (i / 60) * TAU;
@@ -554,6 +625,7 @@ export class JutsuDirector {
       this.app.sfx.poof();
       this._releaseCrows();
       this.phase = 'sm-crows';
+      this.model.setPose('ready', {}, 4);
     });
     this._at(3.9, () => { this.crowPhase = 'disperse'; for (let i = 0; i < 6; i++) setTimeout(() => this.app.sfx.caw(), i * 110); });
     this._at(5.7, () => { this.crowMesh.visible = false; this._finish(); });
@@ -578,14 +650,7 @@ export class JutsuDirector {
 
   _updateSummon(dt) {
     const I = this.I;
-    if (this.phase === 'sm-crouch') {
-      const k = clamp(this.time / 0.5, 0, 1);
-      this.itachi.scale.y = 1 - 0.28 * k;
-      this.itachi.rotation.x = 0.35 * k;
-    } else {
-      this.itachi.scale.y = damp(this.itachi.scale.y, 1, 4, dt);
-      this.itachi.rotation.x = damp(this.itachi.rotation.x, 0, 4, dt);
-    }
+
     if (this.seal.visible) {
       this.sealT += dt;
       const grow = easeInOut(clamp(this.sealT / 0.5, 0, 1));
@@ -670,10 +735,19 @@ export class JutsuDirector {
     }
     this.flames.end();
 
+    // the rigged model animates every frame it's visible
+    if (this.itachi.visible) {
+      if (!this.busy && this.signHold > 0) {
+        this.signHold -= dt;
+        if (this.signHold <= 0) this.model.setPose('idle', {}, 4);
+      }
+      this.model.update(dt, t);
+    }
+
     // chakra aura at his hands
     this.auraPulse = damp(this.auraPulse || 0, 0, 5, dt);
     this.auraTarget = damp(this.auraTarget || 0, 0, 3, dt);
-    this.aura.position.copy(this.I).add(V(0, 1.3, -0.4));
+    this.model.handWorld('r', this.aura.position);
     this.aura.material.opacity = this.itachi.visible ? Math.min(0.55, this.auraPulse * 0.5 + this.auraTarget * 0.25) : 0;
     this.aura.scale.setScalar(0.7 + this.auraPulse * 0.8 + this.auraTarget * 0.4);
     if (!this.busy) this.light.color.set(0xff7a30);

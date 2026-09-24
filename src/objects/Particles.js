@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+﻿import * as THREE from 'three';
 import { shared, rand } from '../core/utils.js';
 
 /**
@@ -23,6 +23,8 @@ export class ParticlePool {
     this.turbulence = turbulence;
     this.buoyancy = buoyancy;
     this.cursor = 0;
+    this.live = 0;
+    this.fresh = false;
 
     this.pos = new Float32Array(count * 3);
     this.vel = new Float32Array(count * 3);
@@ -64,7 +66,7 @@ export class ParticlePool {
         void main(){
           vColor = aColor; vAlpha = aAlpha;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = aAlpha <= 0.0 ? 0.0 : aSize * uPointScale / max(-mv.z, 0.1);
+          gl_PointSize = aAlpha <= 0.0 ? 0.0 : min(aSize * uPointScale / max(-mv.z, 0.1), 220.0);
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: /* glsl */ `
@@ -100,6 +102,7 @@ export class ParticlePool {
     this.grow[i] = o.grow ?? 0;
     this.maxAlpha[i] = o.alpha ?? 1;
     this.seed[i] = Math.random() * 100;
+    this.fresh = true;
   }
 
   burst(origin, n, { speed = 3, spread = 1, up = 0, life = [0.6, 1.2], size = [0.1, 0.3], color, colors, grow = 0, alpha = 1 } = {}) {
@@ -117,10 +120,18 @@ export class ParticlePool {
   }
 
   update(dt, t) {
+    // nothing alive and nothing new: skip the CPU loop, the GPU upload and the draw call
+    if (!this.live && !this.fresh) {
+      this.points.visible = false;
+      return;
+    }
+    this.points.visible = true;
     const { pos, vel, age, life, alpha, size } = this;
     const drag = Math.exp(-this.drag * dt);
+    let live = 0;
     for (let i = 0; i < this.count; i++) {
       if (age[i] >= life[i]) { alpha[i] = 0; continue; }
+      live++;
       age[i] += dt;
       const k = age[i] / life[i];
       if (k >= 1) { alpha[i] = 0; continue; }
@@ -139,9 +150,11 @@ export class ParticlePool {
       size[i] = this.baseSize[i] * Math.max(0.01, 1 + this.grow[i] * k);
     }
     this.posAttr.needsUpdate = true;
-    this.colAttr.needsUpdate = true;
+    if (this.fresh) this.colAttr.needsUpdate = true;
     this.alphaAttr.needsUpdate = true;
     this.sizeAttr.needsUpdate = true;
+    this.live = live;
+    this.fresh = false;
   }
 
   clear() {

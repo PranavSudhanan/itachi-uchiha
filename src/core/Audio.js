@@ -435,15 +435,92 @@ class AudioEngine {
   chime() { [0, 0.08, 0.16].forEach((d, i) => this.tone({ freq: [660, 880, 1320][i], type: 'sine', dur: 0.5, vol: 0.08, delay: d })); }
   wrong() { this.tone({ freq: 220, to: 110, type: 'square', dur: 0.3, vol: 0.06 }); }
   poof() { this.noise({ dur: 0.6, vol: 0.3, type: 'lowpass', freq: 2000, to: 200, attack: 0.02 }); }
-  susanoo() { this.tone({ freq: 45, to: 90, type: 'sawtooth', dur: 1.6, vol: 0.2, attack: 0.3 }); this.noise({ dur: 1.5, vol: 0.18, type: 'bandpass', freq: 200, to: 900, q: 1.5, attack: 0.3 }); }
+  susanoo() {
+    if (!this.ok) return;
+    this.tone({ freq: 40, to: 75, type: 'sawtooth', dur: 1.8, vol: 0.2, attack: 0.3 });
+    this.tone({ freq: 32, type: 'sine', dur: 1.8, vol: 0.4, attack: 0.15 });
+    this.noise({ dur: 1.6, vol: 0.2, type: 'bandpass', freq: 180, to: 900, q: 1.4, attack: 0.35 });
+    for (let i = 0; i < 9; i++) this.noise({ dur: 0.05, vol: 0.2, type: 'bandpass', freq: 700 + Math.random() * 900, q: 3, attack: 0.002, delay: 0.1 + Math.random() * 1.1 });
+    [110, 164.8, 220, 277.2].forEach((f, k) => this.tone({ freq: f, type: 'sawtooth', dur: 1.9, vol: 0.022, attack: 0.6, delay: 0.1 + k * 0.03 }));
+  }
   genjutsu() { this.tone({ freq: 300, to: 40, type: 'sine', dur: 2.2, vol: 0.2, attack: 0.1 }); this.tone({ freq: 2000, to: 80, type: 'triangle', dur: 2.2, vol: 0.05 }); }
   inhale() { this.noise({ dur: 0.9, vol: 0.22, type: 'bandpass', freq: 300, to: 1800, q: 1.2, attack: 0.5 }); this.tone({ freq: 70, to: 140, type: 'sine', dur: 0.9, vol: 0.12, attack: 0.4 }); }
+  /** Katon release: a rushing roar that swells, with a low body and crackling fire. */
   roar(dur = 2.5) {
-    this.noise({ dur, vol: 0.5, type: 'lowpass', freq: 1800, to: 300, attack: 0.05 });
-    this.noise({ dur: dur * 0.8, vol: 0.2, type: 'bandpass', freq: 600, to: 200, q: 0.8, attack: 0.1 });
-    this.tone({ freq: 55, to: 38, type: 'sawtooth', dur, vol: 0.18, attack: 0.1 });
+    this.noise({ dur, vol: 0.5, type: 'lowpass', freq: 600, to: 2200, attack: 0.12 });
+    this.noise({ dur: dur * 0.9, vol: 0.28, type: 'bandpass', freq: 350, to: 1400, q: 0.7, attack: 0.2 });
+    this.noise({ dur: 0.5, vol: 0.35, type: 'highpass', freq: 1500, to: 5000, attack: 0.01 });
+    this.tone({ freq: 62, to: 36, type: 'sawtooth', dur, vol: 0.2, attack: 0.08 });
+    this.tone({ freq: 48, to: 30, type: 'sine', dur: dur * 0.8, vol: 0.35, attack: 0.03 });
+    this.crackle(dur, 70);
   }
-  signTone(i = 0) { this.tone({ freq: 440 * Math.pow(2, [0, 2, 3, 7, 8, 12, 14, 15][i % 8] / 12), type: 'triangle', dur: 0.18, vol: 0.07 }); this.noise({ dur: 0.08, vol: 0.08, type: 'highpass', freq: 3000 }); }
+
+  /** Fire crackle: many tiny bright pops scattered over `dur` seconds. */
+  crackle(dur = 1.5, n = 40, vol = 0.12) {
+    if (!this.ok) return;
+    for (let i = 0; i < n; i++) {
+      const d = Math.pow(Math.random(), 1.3) * dur;
+      this.noise({ dur: 0.012 + Math.random() * 0.03, vol: vol * (0.4 + Math.random()), type: 'bandpass', freq: 1800 + Math.random() * 4500, q: 1.5, attack: 0.001, delay: d });
+    }
+  }
+
+  /** Hand sign: the sharp cloth-and-palm "shk" of fingers snapping into place, as in the anime. */
+  signTone(i = 0) {
+    this.noise({ dur: 0.07, vol: 0.32, type: 'bandpass', freq: 2600 + (i % 3) * 300, q: 1.4, attack: 0.002 });
+    this.noise({ dur: 0.035, vol: 0.2, type: 'highpass', freq: 5500, attack: 0.001, delay: 0.004 });
+    this.tone({ freq: 190, to: 95, type: 'sine', dur: 0.07, vol: 0.18, attack: 0.002 });
+    this.tone({ freq: 880 * Math.pow(2, [0, 3, 7, 5, 8, 12][i % 6] / 12), type: 'sine', dur: 0.14, vol: 0.025, delay: 0.01 });
+  }
+
+  /** A reversed swell rushing into a hit, the build-up before an eye technique. */
+  _rise(dur = 0.4, vol = 0.2, from = 600, to = 7000) {
+    this.noise({ dur, vol, type: 'bandpass', freq: from, to, q: 1.1, attack: dur * 0.95 });
+  }
+
+  /** Metallic ring built from inharmonic partials (the Sharingan "shing"). */
+  _ring(base = 1400, vol = 0.06, dur = 1.4, delay = 0) {
+    [[1, 1], [2.32, 0.7], [4.25, 0.45], [6.63, 0.3], [9.1, 0.15]].forEach(([m, a]) =>
+      this.tone({ freq: base * m, to: base * m * 0.995, type: 'sine', dur: dur * (1.1 - a * 0.3), vol: vol * a, attack: 0.002, delay }));
+  }
+
+  /** Sharingan activating: whoosh up into a bright metallic "shing" over a sub thump. */
+  sharingan() {
+    if (!this.ok) return;
+    this._rise(0.35, 0.18);
+    this._ring(1500, 0.07, 1.3, 0.34);
+    this.tone({ freq: 95, to: 45, type: 'sine', dur: 0.5, vol: 0.35, attack: 0.004, delay: 0.34 });
+    this.noise({ dur: 0.18, vol: 0.18, type: 'highpass', freq: 4000, attack: 0.002, delay: 0.34 });
+  }
+
+  /** Mangekyō: slower, darker swell, a deep drop and a lower ring with a temple bell. */
+  mangekyo() {
+    if (!this.ok) return;
+    this._rise(0.7, 0.22, 200, 5000);
+    this._ring(700, 0.08, 2.2, 0.68);
+    this.tone({ freq: 70, to: 28, type: 'sawtooth', dur: 1.6, vol: 0.14, attack: 0.01, delay: 0.68 });
+    this.tone({ freq: 55, to: 30, type: 'sine', dur: 1.3, vol: 0.4, attack: 0.004, delay: 0.68 });
+    this.bell(note(0, 0), this.ctx.currentTime + 0.7, 0.1);
+  }
+
+  /** Amaterasu: a heavy "fwump" as the black flames catch, then a dark sizzle. */
+  amaterasu() {
+    if (!this.ok) return;
+    this.noise({ dur: 0.7, vol: 0.45, type: 'lowpass', freq: 3500, to: 90, attack: 0.008 });
+    this.tone({ freq: 80, to: 32, type: 'sine', dur: 0.9, vol: 0.4, attack: 0.004 });
+    this.noise({ dur: 1.8, vol: 0.1, type: 'bandpass', freq: 5000, to: 2500, q: 2, attack: 0.1 });
+    this.tone({ freq: 55, type: 'sawtooth', dur: 1.8, vol: 0.06, attack: 0.3 });
+    this.crackle(1.6, 30, 0.08);
+  }
+
+  /** Tsukuyomi: a reversed cymbal pulling everything in, then time stops on a deep bell. */
+  tsukuyomi() {
+    if (!this.ok) return;
+    this.noise({ dur: 1.1, vol: 0.22, type: 'highpass', freq: 3000, to: 9000, attack: 1.05 });
+    this.tone({ freq: 420, to: 35, type: 'sine', dur: 2.6, vol: 0.2, attack: 0.02, delay: 1.05 });
+    this.tone({ freq: 1800, to: 60, type: 'triangle', dur: 2.2, vol: 0.05, delay: 1.05 });
+    this._ring(520, 0.07, 3, 1.05);
+    this.bell(note(0, -1), this.ctx.currentTime + 1.05, 0.14);
+  }
   fizzle() { this.noise({ dur: 0.4, vol: 0.18, type: 'highpass', freq: 2000, to: 6000 }); this.tone({ freq: 300, to: 120, type: 'square', dur: 0.25, vol: 0.05 }); }
   hurt() { this.tone({ freq: 160, to: 60, type: 'square', dur: 0.35, vol: 0.12 }); this.noise({ dur: 0.3, vol: 0.3, freq: 800 }); }
 }

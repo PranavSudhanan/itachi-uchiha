@@ -1,5 +1,6 @@
 ﻿import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
+import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { CrowBurst } from '../objects/Crow.js';
 import { createMirrorWater } from '../objects/MirrorWater.js';
@@ -216,7 +217,8 @@ export class Genjutsu extends Chapter {
     this.clock = 0;
     this.clockWrap.classList.add('on');
     this.holdLabel.textContent = 'Release the genjutsu';
-    this.app.sfx.genjutsu();
+    this.app.sfx.tsukuyomi();
+    voice.say('tsukuyomi', { cooldown: 5, subtitle: false });
     this.app.sfx.setMood('genjutsu');
     this.app.flash(0.6, 0xff0010);
     this.water.ripple(0, -4, 2);
@@ -239,6 +241,7 @@ export class Genjutsu extends Chapter {
     this.iz = { on: true, phase: 'fall', t: 0, loops: 0 };
     this.izBtn.classList.add('active');
     this.app.sfx.genjutsu();
+    voice.say('izanami', { cooldown: 5, subtitle: false });
     this.app.toast('<b>イザナミ · Izanami</b><br>A moment will repeat until you choose correctly.', 3500);
     this._resetFeather();
   }

@@ -8,8 +8,8 @@
   --muted: #b2a39d;
   --gold: #cda85e;
   --line: rgba(241, 232, 222, 0.14);
-  --glass: rgba(14, 6, 12, 0.62);
-  --glass-2: rgba(22, 8, 14, 0.82);
+  --glass: rgba(16, 7, 13, 0.8);
+  --glass-2: rgba(20, 8, 14, 0.93);
   --radius: 14px;
   --nav-h: 0px;
   --gutter: clamp(16px, 4.5vw, 72px);
@@ -382,7 +382,6 @@ body.has-cursor, body.has-cursor * { cursor: none !important; }
   position: fixed; left: 0; top: 0; z-index: 200; width: 26px; height: 26px; margin: -13px 0 0 -13px; pointer-events: none;
   border-radius: 50%; border: 1.5px solid rgba(255, 70, 80, .9); display: none;
   transition: width .2s, height .2s, margin .2s, background .2s, border-color .2s;
-  mix-blend-mode: screen;
 }
 #cursor::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px; border-radius: 50%; background: #ff3b4a; }
 body.has-cursor #cursor { display: block; }
@@ -608,3 +607,44 @@ body.has-cursor #cursor { display: block; }
   .jutsu-title { top: 11%; }
   .jutsu-title .jt-note { display: none; }
 }
+
+/* ---------- Performance ---------- */
+/* Backdrop blur over a live WebGL canvas re-blurs every frame; solid glass panels look the same and cost nothing. */
+*, *::before, *::after { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+#webgl { will-change: auto; }
+.brand-mark, .loader-eye, .t-eye { will-change: transform; }
+/* during a jutsu cinematic the sign flash moves aside so the hand poses stay visible */
+.chapter-ui.casting .sign-flash { left: 18%; top: 52%; width: 150px; height: 150px; }
+.chapter-ui.casting .sign-flash b { font-size: 84px; }
+@media (max-width: 760px) {
+  .chapter-ui.casting .sign-flash { left: 50%; top: 80%; width: 110px; height: 110px; }
+  .chapter-ui.casting .sign-flash b { font-size: 60px; }
+}
+.chapter-ui.casting .signs-panel, .chapter-ui.casting .intro, .chapter-ui.casting .controls, .chapter-ui.casting .hud-corner { transition-duration: .25s; }
+
+/* spoken jutsu call-out (anime-style subtitle) */
+#callout {
+  position: fixed; left: 50%; bottom: 17%; z-index: 40; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  transform: translate(-50%, 8px); opacity: 0; transition: opacity .35s ease, transform .35s ease;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, .9), 0 0 2px #000;
+}
+#callout.on { opacity: 1; transform: translate(-50%, 0); }
+#callout b {
+  font-family: var(--jp); font-weight: 900; font-size: clamp(22px, 4.2vw, 44px); letter-spacing: .12em;
+  color: var(--bone); white-space: nowrap;
+}
+#callout.on b { animation: callout-hit .5s cubic-bezier(.2, 1.6, .4, 1); }
+#callout i {
+  font-style: normal; font-family: var(--serif); font-size: clamp(11px, 1.4vw, 14px);
+  letter-spacing: .32em; text-transform: uppercase; color: var(--crimson-2);
+}
+@keyframes callout-hit { 0% { transform: scale(1.35); filter: blur(6px); opacity: 0; } 100% { transform: none; filter: none; opacity: 1; } }
+
+/* model attribution (CC BY) */
+.model-credit {
+  position: absolute; left: var(--gutter, 24px); bottom: 14px; z-index: 2;
+  font-size: 10px; letter-spacing: .04em; color: var(--muted); opacity: .7; text-decoration: none; pointer-events: auto;
+}
+.model-credit:hover { opacity: 1; text-decoration: underline; }
+@media (max-width: 720px) { .model-credit { bottom: auto; top: 54px; font-size: 9px; } }

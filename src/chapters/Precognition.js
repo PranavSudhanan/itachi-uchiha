@@ -1,5 +1,6 @@
 ﻿import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
+import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { SharinganEye } from '../objects/Eye.js';
 import { createGrass, createForest, emitFireflies } from '../objects/Nature.js';
@@ -54,7 +55,7 @@ export class Precognition extends Chapter {
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     s.add(ground);
-    s.add(createGrass({ count: this.app.low ? 5000 : 16000, area: 26, center: new THREE.Vector3(0, 0, -10) }));
+    s.add(createGrass({ count: this.app.low ? 3000 : 8000, area: 26, center: new THREE.Vector3(0, 0, -10) }));
     s.add(createForest({ count: this.app.low ? 28 : 46, rMin: 16, rMax: 34, arc: [-Math.PI * 0.98, -Math.PI * 0.02], castShadow: !this.app.low }));
     s.add(createForest({ count: 16, rMin: 12, rMax: 22, arc: [Math.PI * 0.1, Math.PI * 0.9], castShadow: false }));
 
@@ -134,7 +135,8 @@ export class Precognition extends Chapter {
     this.ui.querySelector('.intro').style.opacity = '0.1';
     this.eye.group.visible = false;
     this._hud();
-    this.app.sfx.awaken();
+    this.app.sfx.sharingan();
+    voice.say('sharingan', { cooldown: 20 });
     this.app.flash(0.3, 0xff2030);
   }
 
