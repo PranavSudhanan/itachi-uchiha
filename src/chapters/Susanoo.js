@@ -6,6 +6,9 @@ import { CrowBurst } from '../objects/Crow.js';
 import { createItachiFigure } from '../objects/Figure.js';
 import { kunaiGeometry } from '../objects/Weapons.js';
 import { SusanooBody } from '../objects/SusanooBody.js';
+import { CineCam } from '../core/CineCam.js';
+import { Shockwave } from '../objects/Shockwave.js';
+import { stormSky, mountainRing, ruins, wetGround, Bolt } from '../objects/Storm.js';
 import { NOISE_GLSL, shared, drawTexture, rand, damp, clamp, TAU, h, lerp, toScreen, glowTexture } from '../core/utils.js';
 
 const STAGES = [
@@ -47,10 +50,17 @@ export class Susanoo extends Chapter {
 
   build() {
     const s = this.scene;
-    s.background = new THREE.Color(0x070205);
-    s.fog = new THREE.FogExp2(0x0a0306, 0.035);
+    s.background = new THREE.Color(0x07080d);
+    s.fog = new THREE.FogExp2(0x0b0c12, 0.02);
+    // the ruins of the Uchiha hideout under a thunderstorm
+    this.sky = stormSky();
+    s.add(this.sky, mountainRing(), ruins(), wetGround());
+    // faint cool light from the cloud cover, so the ruins read against the dark
+    const fill = new THREE.DirectionalLight(0x7080a8, 0.35);
+    fill.position.set(-10, 20, -15);
+    s.add(fill);
     s.add(new THREE.HemisphereLight(0x604050, 0x100508, 0.8));
-    this.glowLight = new THREE.PointLight(0xff4a20, 0, 30, 1.2);
+    this.glowLight = new THREE.PointLight(0xff4a20, 0, 48, 1.2);
     this.glowLight.position.set(0, 5, -1.5);
     s.add(this.glowLight);
     const key = new THREE.DirectionalLight(0xffe8e0, 0.8);
@@ -74,9 +84,10 @@ export class Susanoo extends Chapter {
         x.beginPath(); x.moveTo(Math.cos(a) * 90, Math.sin(a) * 90); x.lineTo(Math.cos(a) * 500, Math.sin(a) * 500); x.stroke();
       }
     });
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 64), new THREE.MeshStandardMaterial({ map: groundTex, roughness: 0.28, metalness: 0.35, emissiveMap: groundTex, emissive: 0xffffff, emissiveIntensity: 0.15 }));
+    // the chakra seal: a glow laid over the wet rock, brightening as the Susanoo manifests
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(40, 64), new THREE.MeshBasicMaterial({ map: groundTex, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }));
     ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
+    ground.position.y = 0.02;
     s.add(ground);
     this.groundMat = ground.material;
     this._buildStorm();
@@ -96,6 +107,9 @@ export class Susanoo extends Chapter {
     this.leftArm = this.body.leftArm;
     this.mirror = this.body.mirror;
     this.bladeTipLocal = this.body.bladeTipLocal;
+    this.cine = new CineCam(this.camera);
+    this.shockS = new Shockwave({ color: 0xff6a24, reach: 20, speed: 1.2 });
+    s.add(this.shockS.mesh);
     this.stages = this.body.perfect ? [...STAGES.slice(0, 4), PERFECT] : STAGES;
     // FX
     this.embers = new ParticlePool({ count: this.app.low ? 500 : 1200, buoyancy: 1.2, turbulence: 1.5, drag: 0.6 });
@@ -132,14 +146,6 @@ export class Susanoo extends Chapter {
         ['tap', '<b>Tap</b> to throw a kunai · <b>drag</b> to orbit'],
       ])],
     });
-    // CC BY 4.0 attribution for the Perfect Susanoo model (stage IV)
-    if (this.body.perfect) {
-      this.ui.append(h('a.model-credit', {
-        href: 'https://sketchfab.com/3d-models/perfect-susanoo-c1ef38744eb64891b26a6f41aac1b199',
-        target: '_blank', rel: 'noopener',
-        html: 'Perfect Susanoo model: “Perfect susanoo” by wahidinesport, CC BY 4.0',
-      }));
-    }
     this.stagePill = h('b', { text: 'Itachi' });
     this.stageHud = h('div.hud-corner', {}, h('div.pill', {}, 'Stage', this.stagePill));
     this.ui.append(this.stageHud);
@@ -177,15 +183,104 @@ export class Susanoo extends Chapter {
 
   setStage(i, silent = false) {
     const prev = this.stage;
+    if (!silent && this.cine.active) return; // a manifestation is already playing out
+    // manifesting plays a cinematic that applies the stage at its beat
+    if (!silent && i > prev && !this.game.on && !this.app.reducedMotion) {
+      if (prev === 0) { this._cineAwaken(i); return; }
+      if (i === 4) { this._cinePerfect(); return; }
+    }
+    this._applyStage(i, silent, prev);
+  }
+
+  _applyStage(i, silent, prev, { quietVoice = false } = {}) {
     this.stage = i;
     this.stageBtns.forEach((b, k) => b.classList.toggle('active', k === i));
     this.stagePill.textContent = this.stages[i][0];
     if (!silent) {
       this.app.toast(this.stages[i][1], 3600);
-      if (i > prev) { if (prev === 0) voice.say('susanoo', { cooldown: 6 }); this.app.sfx.susanoo(); this.shake = 0.5; this.app.bleed(); this.manifestT = 1.6; }
+      if (i > prev) { if (prev === 0 && !quietVoice) voice.say('susanoo', { cooldown: 6 }); this.app.sfx.susanoo(); this.shake = 0.5; this.app.bleed(); this.manifestT = 1.6; }
       else this.app.sfx.whoosh();
       if (i > 0) this.embers.burst(V(0, 2, 0), 150, { speed: 7, up: 3, life: [0.6, 1.6], size: [0.06, 0.18], colors: this.emberColors });
     }
+  }
+
+  /** Where the orbit camera wants to be right now (cinematics end exactly there). */
+  _orbitPos() {
+    return V(
+      Math.sin(this.yaw) * Math.cos(this.pitch) * this.camDist,
+      this.camLook + Math.sin(this.pitch) * this.camDist,
+      Math.cos(this.yaw) * Math.cos(this.pitch) * this.camDist,
+    );
+  }
+
+  /** Eyes on Itachi's face: the midpoint between them, and his forward direction. */
+  _eyeMid() {
+    const m = this.figure.userData.model;
+    const r = m && m.eyeWorld ? m.eyeWorld('r', V(0, 0, 0)) : this.figure.localToWorld(V(-0.03, 1.66, 0.1));
+    const l = m && m.eyeWorld ? m.eyeWorld('l', V(0, 0, 0)) : this.figure.localToWorld(V(0.03, 1.66, 0.1));
+    return r.add(l).multiplyScalar(0.5);
+  }
+
+  /**
+   * Awakening: close on both eyes as the Mangekyō turns, the name spoken; then from the ground the
+   * chakra erupts around him and the Susanoo forms as the camera rises. Straight to IV adds the hero shot.
+   */
+  _cineAwaken(target) {
+    const eyes = () => this._eyeMid();
+    const toPerfect = target === 4;
+    const baseLook = () => V(0, this.camLook, 0);
+    const keys = [
+      { t: 0.02, cut: true, pos: () => eyes().add(V(0.05, 0.02, 0.78)), look: eyes, fov: 24 },
+      { t: 1.25, pos: () => eyes().add(V(0.03, 0.01, 0.58)), look: eyes, fov: 19 },
+      { t: 1.4, cut: true, pos: V(1.9, 0.35, 4.4), look: V(0, 2.4, 0), fov: 58 },
+      { t: 3.1, pos: V(4.2, 2.6, 8.2), look: V(0, 3.6, 0), fov: 52 },
+    ];
+    if (toPerfect) keys.push(
+      { t: 3.35, cut: true, pos: V(6.5, 0.45, 14), look: V(0, 6.2, 0), fov: 46 },
+      { t: 5.2, pos: V(4.5, 3.4, 18), look: V(0, 6.4, 0), fov: 50 },
+    );
+    const end = toPerfect ? 6.4 : 4.3;
+    keys.push({ t: end, pos: () => this._orbitPos(), look: baseLook, fov: this.cine.baseFov || this.camera.fov });
+    const events = [
+      [0, () => { this.app.sfx.mangekyo(); this.figure.userData.model?.pulseEyes?.(); }],
+      [0.75, () => voice.say('susanoo', { cooldown: 2 })],
+      [1.4, () => {
+        this._applyStage(toPerfect ? 3 : target, false, 0, { quietVoice: true });
+        this.shockS.fire(V(0, 0, 0), 0xff6a24);
+        this.cine.shake = 0.25;
+      }],
+    ];
+    if (toPerfect) events.push(...this._perfectBeats(3.35));
+    this.app.cinema(true);
+    this.cine.play(keys, { events, onEnd: () => this.app.cinema(false) });
+  }
+
+  /** The Perfect Susanoo rising: a low hero shot, lightning, a shockwave across the field. */
+  _cinePerfect() {
+    const prev = this.stage;
+    this.app.cinema(true);
+    this.cine.play([
+      { t: 0.02, cut: true, pos: V(6.5, 0.45, 14), look: V(0, 6.2, 0), fov: 46 },
+      { t: 2.2, pos: V(4.5, 3.4, 18), look: V(0, 6.4, 0), fov: 50 },
+      { t: 3.3, pos: () => this._orbitPos(), look: () => V(0, this.camLook, 0), fov: this.cine.baseFov || this.camera.fov },
+    ], { events: this._perfectBeats(0, prev), onEnd: () => this.app.cinema(false) });
+  }
+
+  _perfectBeats(t0, prev = 3) {
+    return [
+      [t0 + 0.1, () => this._applyStage(4, false, prev, { quietVoice: true })],
+      [t0 + 0.9, () => {
+        // lightning answers it
+        this._strike(null, 1.6);
+        this.app.flash(0.2, 0xdfe8ff);
+        this.app.sfx.thunder();
+        this.app.sfx.boom();
+        this.shockS.fire(V(0, 0, 0), 0xffa050);
+        this.embers.burst(V(0, 3, 0), 260, { speed: 12, up: 5, life: [0.8, 2], size: [0.08, 0.22], colors: this.emberColors });
+        this.cine.shake = 0.45;
+        this.shake = 0.8;
+      }],
+    ];
   }
 
   manifest() {
@@ -300,10 +395,8 @@ export class Susanoo extends Chapter {
     this.splash = new ParticlePool({ count: 400, gravity: -9, drag: 0.5 });
     this.scene.add(this.splash.points);
     this.splashColor = new THREE.Color(0x8090b0);
-    this.boltMat = new THREE.LineBasicMaterial({ color: 0xeef2ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
-    this.bolt = new THREE.Line(new THREE.BufferGeometry(), this.boltMat);
-    this.bolt.frustumCulled = false;
-    this.scene.add(this.bolt);
+    this.bolt = new Bolt();
+    this.scene.add(this.bolt.group);
   }
 
   _resetDrop(i, initial = false) {
@@ -330,19 +423,32 @@ export class Susanoo extends Chapter {
     this.nextBolt -= dt;
     if (this.nextBolt <= 0) {
       this.nextBolt = rand(6, 14);
-      const pts = [];
-      let p = new THREE.Vector3(rand(-25, 25), 40, rand(-40, -20));
-      for (let i = 0; i < 14; i++) { pts.push(p.clone()); p = p.add(new THREE.Vector3(rand(-2.5, 2.5), -rand(2, 3.2), rand(-1, 1))); }
-      this.bolt.geometry.dispose();
-      this.bolt.geometry = new THREE.BufferGeometry().setFromPoints(pts);
-      this.boltMat.opacity = 1;
-      this.lightning.intensity = 6;
-      this.app.flash(0.35, 0xdfe8ff);
-      setTimeout(() => { if (this.active) { this.lightning.intensity = 4; this.app.flash(0.2, 0xdfe8ff); } }, 110);
-      setTimeout(() => this.active && this.app.sfx.thunder(), rand(250, 900));
+      this._strike();
     }
-    this.boltMat.opacity = damp(this.boltMat.opacity, 0, 8, dt);
+    this.bolt.update(dt, this.camera);
     this.lightning.intensity = damp(this.lightning.intensity, 0, 6, dt);
+    const su = this.sky.userData.uniforms;
+    su.uTime.value += dt;
+    su.uFlash.value = damp(su.uFlash.value, 0, 5, dt);
+  }
+
+  /** A strike: a branching bolt, the clouds lit from within around it, a double flicker, thunder after. */
+  _strike(from = null, strength = 1) {
+    if (!from) {
+      // somewhere in view, beyond the Susanoo
+      const f = this.camera.getWorldDirection(new THREE.Vector3()).setY(0).normalize();
+      f.applyAxisAngle(new THREE.Vector3(0, 1, 0), rand(-0.45, 0.45));
+      from = f.multiplyScalar(rand(30, 48)).setY(46);
+    }
+    this.bolt.strike(from);
+    const su = this.sky.userData.uniforms;
+    su.uFlashDir.value.copy(from).normalize();
+    su.uFlash.value = 1.2 * strength;
+    this.lightning.position.set(from.x * 0.4, 20, from.z * 0.4);
+    this.lightning.intensity = 2.2 * strength;
+    this.app.flash(0.07 * strength, 0xdfe8ff);
+    setTimeout(() => { if (this.active) { this.lightning.intensity = 1.6 * strength; su.uFlash.value = 0.9 * strength; } }, 110);
+    setTimeout(() => this.active && this.app.sfx.thunder(), rand(250, 900));
   }
 
   /* ---------- defence game ---------- */
@@ -643,6 +749,8 @@ export class Susanoo extends Chapter {
 
   exit() {
     clearTimeout(this._manT);
+    if (this.cine.active) this.cine.stop();
+    this.app.cinema(false);
     if (this.game.on || !this.gameCard.classList.contains('hidden')) this.endGame(true);
   }
 
@@ -662,7 +770,8 @@ export class Susanoo extends Chapter {
     }
     const strength = this.mats[1].uniforms.uReveal.value;
     this.glowLight.intensity = strength * (14 + this.stage * 4) + Math.sin(t * 9) * 2 * strength;
-    this.groundMat.emissiveIntensity = 0.1 + strength * 0.3;
+    this.groundMat.opacity = 0.2 + strength * 0.7;
+    this.sky.userData.uniforms.uGlow.value.setRGB(0.23, 0.08, 0.06).multiplyScalar(0.3 + strength);
     this.bloom.strength = 0.55 + strength * 0.3;
 
     // Itachi himself: releases chakra as each stage manifests, bleeds from the Mangekyō,
@@ -745,12 +854,15 @@ export class Susanoo extends Chapter {
     this.camDist = damp(this.camDist || dist, dist, 2, dt);
     this.camLook = damp(this.camLook || ly, ly, 2, dt);
     this.shake = damp(this.shake, 0, 5, dt);
-    this.camera.position.set(
-      Math.sin(this.yaw) * Math.cos(this.pitch) * this.camDist + rand(-1, 1) * this.shake * 0.3,
-      this.camLook + Math.sin(this.pitch) * this.camDist + rand(-1, 1) * this.shake * 0.3,
-      Math.cos(this.yaw) * Math.cos(this.pitch) * this.camDist,
-    );
-    this.camera.lookAt(0, this.camLook, 0);
+    this.shockS.update(dt);
+    if (!this.cine.update(dt)) {
+      this.camera.position.set(
+        Math.sin(this.yaw) * Math.cos(this.pitch) * this.camDist + rand(-1, 1) * this.shake * 0.3,
+        this.camLook + Math.sin(this.pitch) * this.camDist + rand(-1, 1) * this.shake * 0.3,
+        Math.cos(this.yaw) * Math.cos(this.pitch) * this.camDist,
+      );
+      this.camera.lookAt(0, this.camLook, 0);
+    }
 
     this.embers.update(dt, t);
     this.sparks.update(dt, t);

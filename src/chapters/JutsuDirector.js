@@ -11,48 +11,174 @@ import { NOISE_GLSL, shared, drawTexture, glowTexture, rand, damp, clamp, lerp, 
 const V = (x, y, z) => new THREE.Vector3(x, y, z);
 const val = (v) => (typeof v === 'function' ? v() : v);
 
-function fireBallMaterial(seed, { inner = false, additive = true } = {}) {
+/**
+ * Tileable 3D value noise baked once into a small 3D texture: the fire volume samples it several times per
+ * step (fbm plus a domain warp), which is far cheaper than evaluating noise in the shader.
+ */
+let _noise3D;
+function noise3DTexture() {
+  if (_noise3D) return _noise3D;
+  const N = 64, P = 8, C = N / P; // 8 lattice cells across the texture, so it tiles
+  const lat = new Float32Array(P * P * P).map(() => Math.random());
+  const L = (x, y, z) => lat[((z % P) * P + (y % P)) * P + (x % P)];
+  const sm = (t) => t * t * (3 - 2 * t);
+  const data = new Uint8Array(N * N * N);
+  for (let z = 0; z < N; z++) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const fx = x / C, fy = y / C, fz = z / C;
+    const ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
+    const u = sm(fx - ix), v = sm(fy - iy), w = sm(fz - iz);
+    const l = (a, b, t) => a + (b - a) * t;
+    const val = l(
+      l(l(L(ix, iy, iz), L(ix + 1, iy, iz), u), l(L(ix, iy + 1, iz), L(ix + 1, iy + 1, iz), u), v),
+      l(l(L(ix, iy, iz + 1), L(ix + 1, iy, iz + 1), u), l(L(ix, iy + 1, iz + 1), L(ix + 1, iy + 1, iz + 1), u), v), w);
+    data[(z * N + y) * N + x] = Math.round(val * 255);
+  }
+  const t = new THREE.Data3DTexture(data, N, N, N);
+  t.format = THREE.RedFormat;
+  t.minFilter = t.magFilter = THREE.LinearFilter;
+  t.wrapS = t.wrapT = t.wrapR = THREE.RepeatWrapping;
+  t.unpackAlignment = 1;
+  t.needsUpdate = true;
+  return (_noise3D = t);
+}
+
+/**
+ * A volume of fire, ray-marched inside a sphere. Four octaves of domain-warped noise rolling upward and
+ * swirling around the core give it billowing, curling structure; temperature follows a blackbody curve
+ * (dark red → orange → yellow → white-hot, emission rising steeply with heat) and the cooler fringes turn
+ * to soot that darkens instead of glowing. Premultiplied output; drawn from the inside (BackSide) so the
+ * camera can even be within it.
+ */
+function fireVolumeMaterial({ seed = 0, steps = 22, swirl = 1 } = {}) {
   return new THREE.ShaderMaterial({
-    uniforms: { uTime: shared.uTime, uAlpha: { value: 1 }, uSeed: { value: seed }, uHeat: { value: 1 } },
+    uniforms: { uTime: shared.uTime, uSeed: { value: seed }, uAlpha: { value: 1 }, uHeat: { value: 1 }, uSwirl: { value: swirl }, uSteps: { value: steps }, uNoise: { value: noise3DTexture() } },
+    defines: { STEPS: steps },
     transparent: true,
     depthWrite: false,
-    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
-    side: inner ? THREE.BackSide : THREE.FrontSide,
+    side: THREE.BackSide,
+    blending: THREE.CustomBlending,
+    blendSrc: THREE.OneFactor,
+    blendDst: THREE.OneMinusSrcAlphaFactor,
     vertexShader: /* glsl */ `
-      ${NOISE_GLSL}
-      uniform float uTime; uniform float uSeed;
-      varying vec3 vN; varying vec3 vV; varying vec3 vP; varying float vDisp;
+      varying vec3 vObj; varying vec3 vCam;
       void main(){
-        vec3 p = position;
-        float n = snoise(p * 1.6 + vec3(uSeed, -uTime * 2.2, uSeed * 0.5));
-        float n2 = snoise(p * 3.8 + vec3(-uTime * 3.0, uSeed, 0.0));
-        float d = n * 0.22 + n2 * 0.08;
-        p += normal * d;
-        vDisp = d;
-        vP = position;
-        vec4 mv = modelViewMatrix * vec4(p, 1.0);
-        vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz);
-        gl_Position = projectionMatrix * mv;
+        vObj = position;
+        vCam = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: /* glsl */ `
-      ${NOISE_GLSL}
-      uniform float uTime; uniform float uAlpha; uniform float uSeed; uniform float uHeat;
-      varying vec3 vN; varying vec3 vV; varying vec3 vP; varying float vDisp;
+      uniform float uTime; uniform float uSeed; uniform float uAlpha; uniform float uHeat; uniform float uSwirl; uniform float uSteps;
+      uniform sampler3D uNoise;
+      varying vec3 vObj; varying vec3 vCam;
+      float nz(vec3 p){ return texture(uNoise, p).r; }
+      float fbm(vec3 p){
+        return nz(p) * 0.55 + nz(p * 2.03 + 0.31) * 0.28 + nz(p * 4.37 + 0.67) * 0.17;
+      }
+      vec3 blackbody(float t){
+        vec3 c = mix(vec3(0.22, 0.015, 0.0), vec3(0.85, 0.1, 0.008), smoothstep(0.0, 0.3, t));
+        c = mix(c, vec3(1.0, 0.4, 0.05), smoothstep(0.25, 0.55, t));
+        c = mix(c, vec3(1.0, 0.74, 0.26), smoothstep(0.5, 0.8, t));
+        return mix(c, vec3(1.0, 0.9, 0.62), smoothstep(0.82, 1.0, t));
+      }
       void main(){
-        float fres = 1.0 - abs(dot(normalize(vN), normalize(vV)));
-        float n = snoise(vP * 2.4 + vec3(0.0, -uTime * 4.0, uSeed)) * 0.5 + 0.5;
-        float n2 = snoise(vP * 6.0 + vec3(uTime * 2.0, -uTime * 6.0, uSeed)) * 0.5 + 0.5;
-        float k = clamp(fres * 0.8 + (1.0 - n) * 0.75 + n2 * 0.4 - vDisp * 2.2 - 0.05 + (1.0 - uHeat) * 0.5, 0.0, 1.0);
-        vec3 white = vec3(1.0, 0.97, 0.85);
-        vec3 yellow = vec3(1.0, 0.72, 0.22);
-        vec3 orange = vec3(1.0, 0.33, 0.04);
-        vec3 red = vec3(0.55, 0.04, 0.0);
-        vec3 col = mix(white, yellow, smoothstep(0.0, 0.2, k));
-        col = mix(col, orange, smoothstep(0.2, 0.55, k));
-        col = mix(col, red, smoothstep(0.55, 0.95, k));
-        float a = uAlpha * (1.0 - smoothstep(0.75, 1.0, k) * 0.8);
-        gl_FragColor = vec4(col * (0.85 + n2 * 0.45), a * 0.9);
-        #include <colorspace_fragment>
+        vec3 ro = vCam, rd = normalize(vObj - vCam);
+        const float R = 1.3;
+        float b = dot(ro, rd), c = dot(ro, ro) - R * R, h = b * b - c;
+        if (h < 0.0) discard;
+        h = sqrt(h);
+        float t0 = max(-b - h, 0.0), t1 = -b + h;
+        // fewer samples when the ball fills the screen (they are hidden by dithering and bloom)
+        float steps = clamp(uSteps, 4.0, float(STEPS));
+        float dt = (t1 - t0) / steps;
+        // interleaved gradient noise: a finer, less visible dither than white noise
+        float jit = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+        float tt = t0 + dt * jit;
+        vec3 acc = vec3(0.0);
+        float T = 1.0;
+        for (int i = 0; i < STEPS; i++) {
+          if (float(i) >= steps) break;
+          vec3 p = ro + rd * tt;
+          float r = length(p) / R;
+          // churning: the field rolls upward and swirls around the core
+          float ang = uSwirl * (uTime * 0.6 + r * 0.7);
+          float cs = cos(ang), sn = sin(ang);
+          vec3 q = vec3(cs * p.x - sn * p.z, p.y, sn * p.x + cs * p.z) * 0.24 + vec3(uSeed, -uTime * 0.36, uSeed * 0.37);
+          // domain warp: the noise folds into curls instead of blobs
+          vec3 w = vec3(nz(q * 0.6 + 0.13), nz(q * 0.6 + 0.47), nz(q * 0.6 + 0.81)) - 0.5;
+          float n = (fbm(q + w * 0.4) - 0.5) * 1.3; // value-noise fbm has a narrow range: stretch it a little
+          float shell = 1.0 - r;
+          float dens = shell * 2.6 + n * 2.6 - 0.12 + max(p.y, 0.0) * n * 0.8;
+          if (dens > 0.001) {
+            float heat = clamp(shell * 1.3 + n * 1.3 + 0.06, 0.0, 1.0);
+            heat = pow(heat, 1.3) * uHeat;
+            // hotter is much brighter; the cool fringe is soot that absorbs rather than glows
+            vec3 emit = blackbody(heat) * (0.1 + heat * heat * 1.7);
+            float soot = smoothstep(0.3, 0.04, heat);
+            float a = 1.0 - exp(-dens * dt * (3.2 + soot * 2.5));
+            acc += T * a * mix(emit, vec3(0.018, 0.011, 0.008), soot * 0.9);
+            T *= 1.0 - a;
+            if (T < 0.02) break;
+          }
+          tt += dt;
+        }
+        gl_FragColor = vec4(acc * uAlpha, (1.0 - T) * uAlpha);
+      }`,
+  });
+}
+
+/** A soft glow around the fireball (fresnel halo, additive). */
+function haloMaterial(color = 0xff6a18) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uAlpha: { value: 0 }, uColor: { value: new THREE.Color(color) } },
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: /* glsl */ `
+      varying vec3 vN; varying vec3 vV;
+      void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: /* glsl */ `
+      uniform float uAlpha; uniform vec3 uColor;
+      varying vec3 vN; varying vec3 vV;
+      void main(){ float f = pow(max(dot(normalize(vN), normalize(vV)), 0.0), 3.0); gl_FragColor = vec4(uColor * f * uAlpha, 1.0); }`,
+  });
+}
+
+/** The stream of fire from his mouth into the growing ball: flowing noise along a tapering cone. */
+function flameJetMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: shared.uTime, uAlpha: { value: 0 } },
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+    vertexShader: /* glsl */ `
+      varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader: /* glsl */ `
+      ${NOISE_GLSL}
+      uniform float uTime; uniform float uAlpha;
+      varying vec2 vUv; varying vec3 vN; varying vec3 vV;
+      void main(){
+        float facing = abs(dot(normalize(vN), normalize(vV)));
+        float core = pow(facing, 1.4);
+        float n = snoise(vec3(vUv.x * 7.0, vUv.y * 5.0 - uTime * 9.0, uTime * 0.7)) * 0.5 + 0.5;
+        float n2 = snoise(vec3(vUv.x * 15.0, vUv.y * 11.0 - uTime * 14.0, 3.0)) * 0.5 + 0.5;
+        float f = clamp(core * 1.2 + n * 0.55 + n2 * 0.25 - 0.45, 0.0, 1.0);
+        vec3 col = mix(vec3(1.0, 0.3, 0.03), vec3(1.0, 0.85, 0.45), f);
+        float a = f * smoothstep(0.0, 0.08, vUv.y) * (1.0 - smoothstep(0.85, 1.0, vUv.y)) * uAlpha;
+        gl_FragColor = vec4(col * a * 1.2, a);
+      }`,
+  });
+}
+
+/** A ring of heat racing across the ground. */
+function shockMaterial(color = 0xff8a30) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uR: { value: 0 }, uAlpha: { value: 0 }, uColor: { value: new THREE.Color(color) } },
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    vertexShader: /* glsl */ `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: /* glsl */ `
+      uniform float uR; uniform float uAlpha; uniform vec3 uColor; varying vec2 vP;
+      void main(){
+        float d = length(vP);
+        float ring = exp(-pow((d - uR) / (0.06 + uR * 0.05), 2.0));
+        float inner = smoothstep(uR, 0.0, d) * 0.25;
+        gl_FragColor = vec4(uColor * (ring * 1.6 + inner) * uAlpha, 1.0);
       }`,
   });
 }
@@ -150,26 +276,51 @@ export class JutsuDirector {
     s.add(this.smoke.points, this.fire.points, this.embers.points, this.chakra.points, this.feathers.points);
     this.fireCols = [0xfff2c0, 0xffc050, 0xff7a20, 0xff3a08].map((c) => new THREE.Color(c));
     this.smokeCols = [0x2a2426, 0x3a3234, 0x1c1718].map((c) => new THREE.Color(c));
-    this.whiteSmoke = [0xd8d4d0, 0xb8b2ae, 0x9a9490].map((c) => new THREE.Color(c));
+    this.whiteSmoke = [0x8a8480, 0x6e6864, 0xa8a29e].map((c) => new THREE.Color(c));
     this.chakraCols = [new THREE.Color(0xff5030), new THREE.Color(0xffb060)];
     this.featherCol = new THREE.Color(0x060409);
 
-    this.flames = new FlameField(128, { core: 0xfff4c8, edge: 0xff6a18, glow: 0xff2a00, blending: THREE.AdditiveBlending, glowAmt: 0.8 });
+    this.flames = new FlameField(128, { core: 0xffb850, edge: 0xc83208, glow: 0x6a1000, blending: THREE.AdditiveBlending, glowAmt: 0.7, fire: true });
     s.add(this.flames.mesh);
 
     // great fireball: core + shell
     this.ball = new THREE.Group();
-    this.ballCore = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 5), fireBallMaterial(1.7, { additive: false }));
-    this.ballShell = new THREE.Mesh(new THREE.IcosahedronGeometry(1.18, 4), fireBallMaterial(5.3, { inner: false }));
-    this.ballShell.material.uniforms.uHeat.value = 0.55;
+    this.ballCore = new THREE.Mesh(new THREE.IcosahedronGeometry(1.3, 3), fireVolumeMaterial({ seed: 1.7, steps: low ? 10 : 14 }));
+    this.ballShell = new THREE.Mesh(new THREE.IcosahedronGeometry(1.7, 3), haloMaterial());
+    this.ballCore.renderOrder = 3;
+    this.ballShell.renderOrder = 2;
     this.ball.add(this.ballCore, this.ballShell);
+    // the stream of fire feeding it
+    const jetGeo = new THREE.CylinderGeometry(1, 1, 1, 28, 24, true);
+    jetGeo.translate(0, 0.5, 0); // mouth at y = 0, ball at y = 1
+    const jp = jetGeo.attributes.position;
+    for (let i = 0; i < jp.count; i++) {
+      const t = jp.getY(i);
+      const r = 0.07 + Math.pow(t, 0.85) * 0.5;
+      jp.setX(i, jp.getX(i) * r);
+      jp.setZ(i, jp.getZ(i) * r);
+    }
+    jetGeo.computeVertexNormals();
+    this.jet = new THREE.Mesh(jetGeo, flameJetMaterial());
+    this.jet.visible = false;
+    this.jet.frustumCulled = false;
+    s.add(this.jet);
+    // shockwave across the ground
+    this.shock = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), shockMaterial());
+    this.shock.rotation.x = -Math.PI / 2;
+    this.shock.position.y = 0.06;
+    this.shock.visible = false;
+    s.add(this.shock);
+    this.timeScale = 1;
     this.ball.visible = false;
     s.add(this.ball);
     this.light = new THREE.PointLight(0xff7a30, 0, 45, 1.2);
     s.add(this.light);
+    this.keyLight = new THREE.PointLight(0xff5a30, 0, 3, 2);
+    s.add(this.keyLight);
 
     // small fireballs (phoenix)
-    this.smallGeo = new THREE.IcosahedronGeometry(1, 3);
+    this.smallGeo = new THREE.IcosahedronGeometry(1.3, 2);
     this.smallBalls = [];
     this.hiddenShuriken = shurikenGeometry(0.9);
     this.hiddenMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, metalness: 0.9, roughness: 0.3 });
@@ -197,6 +348,8 @@ export class JutsuDirector {
 
     // DOM: sign flash + title card
     this.signFlash = h('div.sign-flash', {}, h('b'), h('i'));
+    this.speedLines = h('div.speedlines');
+    this.ch.ui.append(this.speedLines);
     this.title = h('div.jutsu-title', {}, h('div.jt-stamp', { text: '印' }), h('div.jt-jp'), h('div.jt-en'), h('div.jt-note'));
     this.ch.ui.append(this.signFlash, this.title);
   }
@@ -302,6 +455,7 @@ export class JutsuDirector {
     this.phase = null;
     this.events = [];
     this.ball.visible = false;
+    this.jet.visible = false;
     this.crowMesh.visible = false;
     this.seal.visible = false;
     this.model.setPose('idle', {}, 4);
@@ -329,13 +483,17 @@ export class JutsuDirector {
         this.model.setPose('sign', { sign: key }, 30);
         this.app.sfx.signTone(k);
         this.auraPulse = 1;
-        this.chakra.burst(this.model.handWorld('r', new THREE.Vector3()), 14, { speed: 1.4, up: 0.5, life: [0.25, 0.5], size: [0.03, 0.08], colors: this.chakraCols });
+        const hp = this.model.handWorld('r', new THREE.Vector3());
+        this.chakra.burst(hp, 10, { speed: 1.4, up: 0.5, life: [0.25, 0.5], size: [0.03, 0.08], colors: this.chakraCols });
+        this._chakraRing(hp, 18, 2.4);
+        this._impact(0.55 + k * 0.07);
+        this.shake = Math.max(this.shake, 0.12);
         this._flashSign(sign);
       });
     });
     const end = start + j.seq.length * step + 0.12;
     // the call: holding the last sign, he names the technique (close-up, Sharingan flaring)
-    const call = (LINES[j.key] ? LINES[j.key].dur : 1.2) + 0.3;
+    const call = (LINES[j.key] ? voice.duration(j.key) : 1.2) + 0.3;
     this._at(end - 0.05, () => {
       this.phase = 'call';
       voice.say(j.key, { subtitle: false }); // the title card shows the name
@@ -343,18 +501,39 @@ export class JutsuDirector {
       this.model.pulseEyes?.();
       this.app.sfx.sharingan();
       this.auraPulse = 1.4;
+      this._impact(1);
+      this.app.flash(0.12, 0xff2030);
     });
     const face = I.clone().add(V(0, 1.63, -0.05));
+    const eyes = I.clone().add(V(0, 1.64, 0));
     // close-up on the hands from his front-left, drifting as the signs change
+    // (he faces -Z) swing round his left side, then a low medium shot of the upper body as the signs flow,
+    // then close on the eyes for the call, pushing in
     this.weaveKeys = [
-      // swing round his left side first so the camera never passes through him
-      { t: 0.22, pos: I.clone().add(V(-1.9, 1.7, 0.3)), look: I.clone().add(V(0, 1.3, 0)) },
-      { t: 0.5, pos: I.clone().add(V(-0.75, 1.42, -1.25)), look: hands },
-      { t: end, pos: I.clone().add(V(-0.55, 1.38, -1.05)), look: hands },
-      { t: end + 0.3, pos: I.clone().add(V(-0.3, 1.66, -0.85)), look: face },
-      { t: end + call, pos: I.clone().add(V(-0.22, 1.65, -0.68)), look: face },
+      { t: 0.22, pos: I.clone().add(V(-1.9, 1.5, 0.3)), look: I.clone().add(V(0, 1.25, 0)) },
+      { t: 0.5, pos: I.clone().add(V(-0.95, 1.2, -1.75)), look: I.clone().add(V(0, 1.38, -0.15)) },
+      { t: end, pos: I.clone().add(V(-0.7, 1.28, -1.45)), look: I.clone().add(V(0, 1.4, -0.15)) },
+      { t: end + 0.25, pos: I.clone().add(V(-0.16, 1.66, -0.62)), look: eyes },
+      { t: end + call, pos: I.clone().add(V(-0.1, 1.65, -0.46)), look: eyes },
     ];
     this.T0 = end + call;
+  }
+
+  /** Anime impact frame: radial speed lines snap in and fade. */
+  _impact(strength = 1) {
+    const el = this.speedLines;
+    el.style.setProperty('--k', strength);
+    el.classList.remove('on');
+    void el.offsetWidth;
+    el.classList.add('on');
+  }
+
+  /** A ring of chakra bursting outward from a point (particles). */
+  _chakraRing(p, n = 26, speed = 3) {
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU;
+      this.chakra.emit({ x: p.x, y: p.y, z: p.z, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed * 0.7, vz: rand(-0.4, 0.4), life: rand(0.25, 0.4), size: rand(0.03, 0.06), color: this.chakraCols[i % 2], alpha: 1 });
+    }
   }
 
   _flashSign(sign) {
@@ -373,10 +552,17 @@ export class JutsuDirector {
     const I = this.I.clone();
     const side = I.clone().add(V(1.7, 1.7, -1.9));
     this._track([
-      { t: 0.9, pos: side, look: I.clone().add(V(0, 1.55, 0)) },
-      { t: 1.5, pos: I.clone().add(V(3.6, 1.6, 1.2)), look: I.clone().add(V(0, 1.8, -4.5)) },
-      { t: 3.0, pos: I.clone().add(V(5.2, 3.4, 5.5)), look: () => this.ball.position.clone().add(V(0, -0.5, 0)) },
-      { t: 4.7, pos: I.clone().add(V(4.6, 3.8, 6.5)), look: () => this.ballEnd.clone().add(V(0, 0.8, 0)) },
+      // inhale: side profile, chest filling
+      { t: 0.35, pos: I.clone().add(V(1.35, 1.55, -0.55)), look: I.clone().add(V(0, 1.5, -0.1)) },
+      { t: 0.9, pos: I.clone().add(V(1.15, 1.58, -0.45)), look: I.clone().add(V(0, 1.55, -0.2)) },
+      // release: low, just behind his shoulder, the fire erupting away from us, Itachi silhouetted against it
+      { t: 1.1, pos: I.clone().add(V(0.75, 1.05, 1.55)), look: I.clone().add(V(-0.1, 1.9, -5)) },
+      { t: 2.1, pos: I.clone().add(V(0.95, 0.95, 2.1)), look: () => this.ball.position.clone() },
+      // tracking wide from the side as it rolls toward the targets
+      { t: 3.0, pos: I.clone().add(V(5.2, 3.2, 3.2)), look: () => this.ball.position.clone().add(V(0, -0.3, 0)) },
+      { t: 3.6, pos: I.clone().add(V(4.6, 3.4, 1.0)), look: () => this.ballEnd.clone().add(V(0, 0.8, 0)) },
+      // impact: low and wide
+      { t: 4.8, pos: I.clone().add(V(3.8, 1.8, -4.2)), look: () => this.ballEnd.clone().add(V(0, 1.2, 0)) },
       { t: 6.0, pos: this._baseCam(), look: this._baseLook() },
     ]);
     this.ballStart = this.mouth.add(V(0, 0, -0.8));
@@ -395,10 +581,13 @@ export class JutsuDirector {
       this.ball.position.copy(this.ballStart);
       this.ball.scale.setScalar(0.2);
       this.ballCore.material.uniforms.uAlpha.value = 1;
-      this.ballShell.material.uniforms.uAlpha.value = 0.35;
+      this.ballCore.material.uniforms.uHeat.value = 1;
+      this.ballShell.material.uniforms.uAlpha.value = 0.14;
+      this.jet.visible = true;
       this.shake = 0.5;
+      this._impact(1.2);
     });
-    this._at(2.1, () => { this.phase = 'fb-roll'; });
+    this._at(2.1, () => { this.phase = 'fb-roll'; this.jet.visible = false; });
     this._at(3.6, () => this._fireballBlast());
     this._at(6.1, () => this._finish());
   }
@@ -410,9 +599,19 @@ export class JutsuDirector {
     this.smoke.burst(p.clone().setY(1.5), this.app.low ? 90 : 170, { speed: 4, up: 2.2, life: [2, 4], size: [1, 2.2], colors: this.smokeCols, grow: 2.2, alpha: 0.75 });
     this.embers.burst(p, 220, { speed: 9, up: 4, life: [1, 2.6], size: [0.04, 0.1], colors: this.fireCols });
     this.app.sfx.boom();
-    this.app.flash(0.3, 0xffc070);
-    this.shake = 1.2;
-    this.light.intensity = 260;
+    this.shock.material.uniforms.uColor.value.set(0xff8a30);
+    this.app.flash(0.45, 0xffc070);
+    this.shake = 1.4;
+    this.light.position.y = Math.max(this.light.position.y, 3);
+    this.light.intensity = 150;
+    // hit-stop: time slows for a beat, then catches up
+    this.timeScale = 0.22;
+    this._impact(1.4);
+    this.shock.position.set(p.x, 0.06, p.z);
+    this.shock.visible = true;
+    this.shockT = 0;
+    // a column of fire bursting upward
+    this.fire.burst(p.clone().setY(0.5), this.app.low ? 80 : 160, { speed: 3, up: 12, life: [0.6, 1.2], size: [0.6, 1.4], colors: this.fireCols, grow: -0.2, alpha: 0.5 });
     this._scorch(p.x, p.z, 4.5);
     for (const tg of this.ch.targets) {
       const d = tg.disk.getWorldPosition(V(0, 0, 0)).distanceTo(p);
@@ -448,6 +647,14 @@ export class JutsuDirector {
       if (breathing) {
         this.ball.position.lerpVectors(this.ballStart, V(this.ballStart.x + 0.3, 2.2, -6.5), easeInOut(k));
         this.ball.scale.setScalar(lerp(0.3, 2.7, Math.pow(k, 0.7)));
+        // the jet: from his lips into the ball, fattening as it pours
+        const d = this.ball.position.clone().sub(mouth);
+        const L = Math.max(0.01, d.length() - this.ball.scale.x * 0.6);
+        this.jet.position.copy(mouth);
+        this.jet.quaternion.setFromUnitVectors(V(0, 1, 0), d.normalize());
+        const w = this.ball.scale.x * 0.9;
+        this.jet.scale.set(w, L, w);
+        this.jet.material.uniforms.uAlpha.value = clamp(k * 6, 0, 1) * (1 - clamp((k - 0.85) / 0.15, 0, 1) * 0.6);
         // flamethrower stream from the mouth feeding the ball
         const n = this.app.low ? 8 : 14;
         for (let i = 0; i < n; i++) {
@@ -465,6 +672,9 @@ export class JutsuDirector {
         this.ball.scale.setScalar(lerp(2.7, 3.5, k));
       }
       const r = this.ball.scale.x;
+      // march fewer steps the more of the screen the ball covers
+      const near = this.camera.position.distanceTo(this.ball.position) / Math.max(r * 1.3, 0.01);
+      this.ballCore.material.uniforms.uSteps.value = Math.round(clamp(3 + near * 2.2, 7, this.ballCore.material.defines.STEPS));
       this.ball.rotation.y += dt * 0.8;
       this.ball.rotation.x += dt * 0.5;
       // trailing fire and embers
@@ -497,13 +707,14 @@ export class JutsuDirector {
       const k = clamp(this.blastT / 0.45, 0, 1);
       this.ball.scale.setScalar(3.5 + k * 2.5);
       this.ballCore.material.uniforms.uAlpha.value = 1 - k;
-      this.ballShell.material.uniforms.uAlpha.value = 0.35 * (1 - k);
+      this.ballCore.material.uniforms.uHeat.value = 1 - k * 0.5;
+      this.ballShell.material.uniforms.uAlpha.value = 0.14 * (1 - k);
       if (k >= 1) this.ball.visible = false;
       this.ch.bendAt = { x: this.ballEnd.x, z: this.ballEnd.z, r: 7, s: 1.6 * (1 - k * 0.5) };
     }
   }
 
-  /* ---------------- Phoenix Sage Fire ---------------- */
+  /* ---------------- Phoenix Sage Flower Nail Crimson (Hōsenka Tsumabeni) ---------------- */
 
   _planPhoenix(j) {
     const I = this.I.clone();
@@ -529,7 +740,7 @@ export class JutsuDirector {
   }
 
   _launchSmall(tgt) {
-    const m = new THREE.Mesh(this.smallGeo, fireBallMaterial(rand(0, 10)));
+    const m = new THREE.Mesh(this.smallGeo, fireVolumeMaterial({ seed: rand(0, 10), steps: this.app.low ? 10 : 14, swirl: 1.6 }));
     const from = this.mouth.add(V(0, 0, -0.3));
     const to = tgt.pos().clone();
     const mid = from.clone().lerp(to, 0.5).add(V(rand(-4, 4), rand(2, 4), 0));
@@ -542,7 +753,7 @@ export class JutsuDirector {
     this.smallBalls.push({ m, s, from, mid, to, tgt, t: 0, dur: rand(0.8, 1.1) });
     this.app.sfx.swoosh();
     this.app.sfx.noise({ dur: 0.5, vol: 0.18, type: 'lowpass', freq: 400, to: 1400, attack: 0.03 });
-    this.fire.burst(from, 20, { speed: 3, life: [0.2, 0.4], size: [0.2, 0.4], colors: this.fireCols });
+    this.fire.burst(from, 20, { speed: 3, life: [0.2, 0.4], size: [0.2, 0.4], colors: this.fireCols.slice(1), alpha: 0.5 });
   }
 
   _updateSmall(dt) {
@@ -558,11 +769,11 @@ export class JutsuDirector {
       b.m.scale.setScalar(0.25 + Math.min(k * 4, 1) * 0.4);
       b.m.rotation.y += dt * 4;
       for (let q = 0; q < (this.app.low ? 3 : 6); q++) {
-        this.fire.emit({ x: p.x + rand(-0.15, 0.15), y: p.y + rand(-0.15, 0.15), z: p.z + rand(-0.15, 0.15), vx: rand(-0.6, 0.6), vy: rand(0, 1.2), vz: rand(-0.6, 0.6), life: rand(0.3, 0.6), size: rand(0.2, 0.45), color: this.fireCols[Math.floor(rand(0, 4))], grow: -0.6 });
+        this.fire.emit({ x: p.x + rand(-0.15, 0.15), y: p.y + rand(-0.15, 0.15), z: p.z + rand(-0.15, 0.15), vx: rand(-0.6, 0.6), vy: rand(0.4, 1.6), vz: rand(-0.6, 0.6), life: rand(0.3, 0.6), size: rand(0.18, 0.4), color: this.fireCols[Math.floor(rand(1, 4))], grow: -0.6, alpha: 0.4 });
       }
       this.flames.push(p.x, p.y - 0.35, p.z, 0.7, 1.2, i * 7.1, 0.9);
       if (k >= 1) {
-        this.fire.burst(p, 70, { speed: 5, up: 1, life: [0.3, 0.9], size: [0.3, 0.7], colors: this.fireCols, grow: -0.4 });
+        this.fire.burst(p, 70, { speed: 5, up: 1, life: [0.3, 0.9], size: [0.3, 0.7], colors: this.fireCols.slice(1), grow: -0.4, alpha: 0.5 });
         this.smoke.burst(p, 18, { speed: 1.5, up: 1.5, life: [1, 2], size: [0.5, 1], colors: this.smokeCols, grow: 1.8, alpha: 0.6 });
         this.embers.burst(p, 30, { speed: 5, up: 2, life: [0.6, 1.4], size: [0.03, 0.07], colors: this.fireCols });
         this.app.sfx.thud();
@@ -612,7 +823,12 @@ export class JutsuDirector {
       if (this.app.sfx.ok) this.app.sfx.taiko(this.app.sfx.ctx.currentTime, 0.9);
       this.app.sfx.boom();
       this.app.flash(0.3, 0xff3040);
-      this.shake = 0.7;
+      this.shake = 0.9;
+      this._impact(1.2);
+      this.shock.material.uniforms.uColor.value.set(0xff2a40);
+      this.shock.position.set(C.x, 0.06, C.z);
+      this.shock.visible = true;
+      this.shockT = 0;
       // dust ring along the ground
       for (let i = 0; i < 60; i++) {
         const a = (i / 60) * TAU;
@@ -621,7 +837,7 @@ export class JutsuDirector {
       this.ch.bendAt = { x: I.x, z: I.z, r: 6, s: 1.3 };
     });
     this._at(1.0, () => {
-      this.smoke.burst(C.clone().add(V(0, 1.2, 0)), this.app.low ? 120 : 220, { speed: 3.2, up: 1.2, life: [1.4, 2.8], size: [1, 2.3], colors: this.whiteSmoke, grow: 1.6, alpha: 0.85 });
+      this.smoke.burst(C.clone().add(V(0, 1.2, 0)), this.app.low ? 120 : 220, { speed: 4.2, up: 1.4, life: [1.2, 2.6], size: [0.7, 1.8], colors: this.whiteSmoke, grow: 1.9, alpha: 0.42 });
       this.app.sfx.poof();
       this._releaseCrows();
       this.phase = 'sm-crows';
@@ -692,7 +908,17 @@ export class JutsuDirector {
   /* ---------------- loop ---------------- */
 
   /** Returns true while the director controls the camera. */
-  update(dt, t) {
+  update(rawDt, t) {
+    // slow-motion beats (hit-stop) ease back to real time
+    this.timeScale = damp(this.timeScale, 1, 2.2, rawDt);
+    const dt = rawDt * this.timeScale;
+    if (this.shock.visible) {
+      this.shockT += dt;
+      const k = clamp(this.shockT / 0.9, 0, 1);
+      this.shock.material.uniforms.uR.value = 0.5 + Math.pow(k, 0.6) * 12;
+      this.shock.material.uniforms.uAlpha.value = (1 - k) * 1.1;
+      if (k >= 1) this.shock.visible = false;
+    }
     this.flames.begin();
     if (this.busy) {
       this.time += dt;
@@ -748,8 +974,12 @@ export class JutsuDirector {
     this.auraPulse = damp(this.auraPulse || 0, 0, 5, dt);
     this.auraTarget = damp(this.auraTarget || 0, 0, 3, dt);
     this.model.handWorld('r', this.aura.position);
-    this.aura.material.opacity = this.itachi.visible ? Math.min(0.55, this.auraPulse * 0.5 + this.auraTarget * 0.25) : 0;
-    this.aura.scale.setScalar(0.7 + this.auraPulse * 0.8 + this.auraTarget * 0.4);
+    // chakra glowing at his hands lights his face from below while he weaves and calls the jutsu
+    const glowing = this.busy && (this.phase === 'weave' || this.phase === 'call' || this.phase === 'fb-gather' || this.phase === 'ph-gather');
+    this.keyLight.position.copy(this.aura.position).add(V(0, -0.1, -0.35));
+    this.keyLight.intensity = damp(this.keyLight.intensity, glowing ? 0.35 + this.auraPulse * 0.6 : 0, 6, rawDt);
+    this.aura.material.opacity = this.itachi.visible ? Math.min(0.3, this.auraPulse * 0.26 + this.auraTarget * 0.14) : 0;
+    this.aura.scale.setScalar(0.5 + this.auraPulse * 0.55 + this.auraTarget * 0.3);
     if (!this.busy) this.light.color.set(0xff7a30);
     this.light.intensity = damp(this.light.intensity, 0, this.busy ? 2 : 4, dt);
 

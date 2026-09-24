@@ -77,6 +77,10 @@ export class App {
 
     this.cursor = document.getElementById('cursor');
     this.toastEl = document.getElementById('toast');
+    // cinematic letterbox bars
+    const lb = document.createElement('div');
+    lb.id = 'letterbox';
+    document.body.append(lb);
     this.overlay = document.getElementById('transition');
     this.navEl = document.getElementById('nav');
     this.countEl = document.getElementById('chapter-count');
@@ -289,6 +293,9 @@ export class App {
     this.flashAmt = Math.max(this.flashAmt, amount);
     this.cinePass.uniforms.uFlashColor.value.set(color);
   }
+
+  /** Letterbox bars in, chapter UI out, while a cinematic plays. */
+  cinema(on) { document.body.classList.toggle('cinema', !!on); }
 
   toast(html, ms = 3200) {
     this.toastEl.innerHTML = html;
@@ -532,7 +539,7 @@ export class App {
   _tick = (now) => {
     requestAnimationFrame(this._tick);
     const raw = (now - this._last) / 1000;
-    const dt = Math.min(raw, 0.05);
+    const dt = Math.min(Math.max(raw, 0), 0.05); // never backwards, never a huge leap
     this._last = now;
     this._adapt(raw);
     this._t += dt;

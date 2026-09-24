@@ -132,6 +132,6 @@ export const HAND_SIGNS = [
 
 export const JUTSU = [
   { key: 'fireball', name: 'Fire Style: Great Fireball', jp: '火遁・豪火球の術', seq: ['snake', 'ram', 'monkey', 'boar', 'horse', 'tiger'], note: 'The Uchiha rite of passage. Itachi performed it flawlessly as a child.' },
-  { key: 'phoenix', name: 'Fire Style: Phoenix Sage Fire', jp: '火遁・鳳仙火の術', seq: ['rat', 'tiger', 'dog', 'ox', 'hare', 'tiger'], note: 'A volley of small fireballs that can hide shuriken inside them.' },
+  { key: 'phoenix', name: 'Fire Style: Hōsenka Tsumabeni', jp: '火遁・鳳仙花爪紅', seq: ['rat', 'tiger', 'dog', 'ox', 'hare', 'tiger'], note: 'A volley of small fireballs with shuriken hidden inside them.' },
   { key: 'summon', name: 'Summoning: Crows', jp: '口寄せの術', seq: ['boar', 'dog', 'bird', 'monkey', 'ram'], note: 'Itachi\'s crows serve as scouts, clones and genjutsu mediums.' },
 ];

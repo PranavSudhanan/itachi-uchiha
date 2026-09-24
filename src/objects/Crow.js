@@ -38,10 +38,11 @@ export function createCrowMaterial({ flap = 11, amp = 0.5 } = {}) {
     vertexShader: /* glsl */ `
       attribute float aWing; attribute float aPhase;
       uniform float uTime; uniform float uFlap; uniform float uAmp;
-      varying float vWing; varying vec3 vCol; varying float vDepth;
+      varying float vWing; varying vec3 vCol; varying float vDepth; varying float vFlap;
       void main(){
         vec3 p = position;
         float f = sin(uTime * uFlap + aPhase);
+        vFlap = f;
         p.y += f * aWing * aWing * uAmp;
         p.x *= 1.0 - 0.12 * abs(f) * aWing;
         vWing = aWing;
@@ -60,9 +61,11 @@ export function createCrowMaterial({ flap = 11, amp = 0.5 } = {}) {
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: /* glsl */ `
-      varying float vWing; varying vec3 vCol; varying float vDepth;
+      varying float vWing; varying vec3 vCol; varying float vDepth; varying float vFlap;
       void main(){
-        vec3 c = vec3(0.008, 0.006, 0.012) + vec3(0.02, 0.012, 0.035) * vWing;
+        // black plumage; the wings catch a blue-violet sheen as they turn through the stroke
+        vec3 c = vec3(0.006, 0.005, 0.01) + vec3(0.012, 0.01, 0.022) * vWing;
+        c += vec3(0.03, 0.04, 0.09) * vWing * smoothstep(0.2, 1.0, vFlap);
         c += vCol;
         gl_FragColor = vec4(c, 1.0);
         #include <colorspace_fragment>

@@ -77,6 +77,9 @@ class AudioEngine {
     this.sfxBus = ctx.createGain();
     this.sfxBus.gain.value = 0.7;
     this.sfxBus.connect(this.master);
+    // the eye techniques' ring runs through its own gain so a spoken line can duck it
+    this.eyeBus = ctx.createGain();
+    this.eyeBus.connect(this.sfxBus);
 
     this.musicBus = ctx.createGain();
     this.musicBus.gain.value = this.musicOn ? 0.55 : 0;
@@ -443,6 +446,13 @@ class AudioEngine {
     for (let i = 0; i < 9; i++) this.noise({ dur: 0.05, vol: 0.2, type: 'bandpass', freq: 700 + Math.random() * 900, q: 3, attack: 0.002, delay: 0.1 + Math.random() * 1.1 });
     [110, 164.8, 220, 277.2].forEach((f, k) => this.tone({ freq: f, type: 'sawtooth', dur: 1.9, vol: 0.022, attack: 0.6, delay: 0.1 + k * 0.03 }));
   }
+  /** A heartbeat (lub-dub) felt more than heard; `vol` lets a sequence fade. */
+  heartbeat(vol = 1) {
+    if (!this.ok) return;
+    this.tone({ freq: 62, to: 38, type: 'sine', dur: 0.2, vol: 0.55 * vol, attack: 0.008 });
+    this.noise({ dur: 0.1, vol: 0.12 * vol, type: 'lowpass', freq: 180, attack: 0.005 });
+    this.tone({ freq: 55, to: 34, type: 'sine', dur: 0.22, vol: 0.38 * vol, attack: 0.01, delay: 0.26 });
+  }
   genjutsu() { this.tone({ freq: 300, to: 40, type: 'sine', dur: 2.2, vol: 0.2, attack: 0.1 }); this.tone({ freq: 2000, to: 80, type: 'triangle', dur: 2.2, vol: 0.05 }); }
   inhale() { this.noise({ dur: 0.9, vol: 0.22, type: 'bandpass', freq: 300, to: 1800, q: 1.2, attack: 0.5 }); this.tone({ freq: 70, to: 140, type: 'sine', dur: 0.9, vol: 0.12, attack: 0.4 }); }
   /** Katon release: a rushing roar that swells, with a low body and crackling fire. */
@@ -492,14 +502,58 @@ class AudioEngine {
     this.noise({ dur: 0.18, vol: 0.18, type: 'highpass', freq: 4000, attack: 0.002, delay: 0.34 });
   }
 
-  /** Mangekyō: slower, darker swell, a deep drop and a lower ring with a temple bell. */
+  /** Ducks the eye-technique ring under a spoken line. */
+  duckEye(on) {
+    if (this.eyeBus) this.eyeBus.gain.setTargetAtTime(on ? 0.3 : 1, this.ctx.currentTime, on ? 0.04 : 0.3);
+  }
+
+  /**
+   * Mangekyō, in the shape of the reference effect, compressed to ~2.4 s so it clears the spoken line:
+   * a low tonal swell (~86 Hz with its harmonics) rising into a bright "shing" (noise at ~3 kHz) with a
+   * ~170 Hz body, then a shimmering metallic ring of inharmonic partials (3.04, 3.61, 4.18, 6.05 kHz)
+   * over a 120 Hz hum.
+   */
   mangekyo() {
     if (!this.ok) return;
-    this._rise(0.7, 0.22, 200, 5000);
-    this._ring(700, 0.08, 2.2, 0.68);
-    this.tone({ freq: 70, to: 28, type: 'sawtooth', dur: 1.6, vol: 0.14, attack: 0.01, delay: 0.68 });
-    this.tone({ freq: 55, to: 30, type: 'sine', dur: 1.3, vol: 0.4, attack: 0.004, delay: 0.68 });
-    this.bell(note(0, 0), this.ctx.currentTime + 0.7, 0.1);
+    const ctx = this.ctx, t0 = ctx.currentTime, hit = t0 + 0.34;
+    if (t0 - (this._mgkT ?? -9) < 0.8) return; // one at a time, never stacked
+    this._mgkT = t0;
+    const out = (node, reverb) => { node.connect(this.eyeBus); const s = ctx.createGain(); s.gain.value = reverb; node.connect(s).connect(this.reverb); };
+
+    // 1. the swell: a dark saw drone opening up, with a breathy rush
+    const sw = ctx.createOscillator(), sw2 = ctx.createOscillator(), lp = ctx.createBiquadFilter(), sg = ctx.createGain();
+    sw.type = 'sawtooth'; sw.frequency.setValueAtTime(80, t0); sw.frequency.linearRampToValueAtTime(88, hit);
+    sw2.type = 'triangle'; sw2.frequency.setValueAtTime(172, t0);
+    lp.type = 'lowpass'; lp.Q.value = 4; lp.frequency.setValueAtTime(180, t0); lp.frequency.exponentialRampToValueAtTime(1600, hit);
+    sg.gain.setValueAtTime(0.0001, t0); sg.gain.exponentialRampToValueAtTime(0.24, hit - 0.02); sg.gain.exponentialRampToValueAtTime(0.0001, hit + 0.35);
+    sw.connect(lp); sw2.connect(lp); lp.connect(sg); out(sg, 0.15);
+    [sw, sw2].forEach((o) => { o.start(t0); o.stop(hit + 0.4); });
+    this.noise({ dur: 0.34, vol: 0.12, type: 'bandpass', freq: 400, to: 3200, q: 1.2, attack: 0.32 });
+
+    // 2. the shing and its body
+    this.noise({ dur: 0.28, vol: 0.3, type: 'bandpass', freq: 3050, to: 2800, q: 3, attack: 0.003, delay: 0.34 });
+    this.noise({ dur: 0.12, vol: 0.14, type: 'highpass', freq: 5000, attack: 0.001, delay: 0.34 });
+    this.tone({ freq: 175, to: 82, type: 'sine', dur: 0.45, vol: 0.32, attack: 0.004, delay: 0.34 });
+
+    // 3. the ring: inharmonic partials with a shimmer, fading out by ~2.4 s
+    const trem = ctx.createOscillator(), td = ctx.createGain();
+    trem.frequency.value = 7.5; td.gain.value = 0.35;
+    trem.connect(td);
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0.0001, hit); rg.gain.exponentialRampToValueAtTime(1.5, hit + 0.01); rg.gain.setTargetAtTime(0, hit + 0.15, 0.5); rg.gain.setTargetAtTime(0, hit + 2.2, 0.03);
+    const shim = ctx.createGain(); shim.gain.value = 0.65; td.connect(shim.gain);
+    rg.connect(shim); out(shim, 0.35);
+    const oscs = [trem];
+    [[3040, 0.05], [3607, 0.038], [4177, 0.03], [6050, 0.018], [1520, 0.02]].forEach(([f, a], i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.setValueAtTime(f, hit); o.frequency.exponentialRampToValueAtTime(f * 0.994, hit + 1.9);
+      o.detune.value = (i % 2 ? 1 : -1) * 4;
+      g.gain.value = a; o.connect(g).connect(rg); oscs.push(o);
+    });
+    const hum = ctx.createOscillator(), hg = ctx.createGain();
+    hum.frequency.value = 120; this._env(hg, hit, 0.05, 0.16, 1.8);
+    hum.connect(hg); out(hg, 0.1); oscs.push(hum);
+    oscs.forEach((o) => { o.start(hit); o.stop(hit + 2.4); });
   }
 
   /** Amaterasu: a heavy "fwump" as the black flames catch, then a dark sizzle. */

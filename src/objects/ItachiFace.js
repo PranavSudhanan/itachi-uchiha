@@ -1,13 +1,15 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { sharinganTexture } from '../core/utils.js';
+import { sharinganTexture, sharinganCanvas, shared } from '../core/utils.js';
 
 /*
  * Realistic skin and a living face for the GLB Itachi:
  *  - skinMaterial(): physically based cloth + skin, with the skin found by colour in the texture and given
  *    wrap-around subsurface scattering, red back-scatter, a skin specular and gentle smoothing; cloth gets a fibre sheen
  *  - FaceFX: eyes (sclera, rotating Sharingan / Mangekyō iris, lash line) and blood trails, built as
- *    decals cut from the face mesh itself and skinned to the same skeleton, so they follow every pose
+ *    decals cut from the face mesh itself and skinned to the same skeleton, so they follow every pose.
+ *    For a model with its own painted eyes ("native" in itachi.json) the Sharingan is painted into the
+ *    model's iris instead, keeping its own eye shape, whites and lids.
  */
 
 let _env = null;
@@ -70,9 +72,30 @@ if ( gSkin > 0.0 ) {
 } else {
   // cloth: a soft fibre sheen toward grazing angles (a cheap stand-in for a full sheen lobe)
   float fres = pow( 1.0 - saturate( dot( geometryNormal, geometryViewDir ) ), 3.0 );
-  reflectedLight.directSpecular += irradiance * fres * 0.22 * vec3( 0.55, 0.52, 0.6 );
+  float lum = dot( material.diffuseColor, vec3( 0.3, 0.59, 0.11 ) );
+  reflectedLight.directSpecular += irradiance * fres * 0.1 * smoothstep( 0.02, 0.25, lum ) * vec3( 0.55, 0.52, 0.6 );
 }
 `;
+
+/**
+ * True when a texture really is a tangent-space normal map (bluish, averaging about (0.5, 0.5, 1)).
+ * Models ripped from games sometimes carry colour masks in the normal slot, which wreck the lighting.
+ */
+function looksLikeNormalMap(tex) {
+  if (!tex || !tex.image) return false;
+  try {
+    const c = document.createElement('canvas');
+    c.width = c.height = 16;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.drawImage(tex.image, 0, 0, 16, 16);
+    const d = x.getImageData(0, 0, 16, 16).data;
+    let r = 0, g = 0, b = 0;
+    for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2]; }
+    const n = d.length / 4;
+    r /= n * 255; g /= n * 255; b /= n * 255;
+    return b > 0.7 && Math.abs(r - 0.5) < 0.18 && Math.abs(g - 0.5) < 0.18;
+  } catch (_) { return true; }
+}
 
 /** Converts a glTF material into realistic skin/cloth, keeping its textures. */
 export function skinMaterial(m) {
@@ -82,7 +105,7 @@ export function skinMaterial(m) {
     name: m.name,
     color: m.color ? m.color.clone() : new THREE.Color(0xffffff),
     map: m.map || null,
-    normalMap: m.normalMap || null,
+    normalMap: looksLikeNormalMap(m.normalMap) ? m.normalMap : null,
     alphaMap: m.alphaMap || null,
     transparent: m.transparent,
     alphaTest: m.alphaTest,
@@ -91,11 +114,42 @@ export function skinMaterial(m) {
     roughness: 0.82,
     metalness: 0,
     envMap: _env,
-    envMapIntensity: 0.32,
+    envMapIntensity: 0.55,
   });
   if (t.map) t.map.anisotropy = 4;
+  // an untextured black surface is hair: it must read as black under the red and orange scene lights
+  const neutral = !t.map && t.color.r + t.color.g + t.color.b < 0.06;
   t.onBeforeCompile = (sh) => {
-    sh.fragmentShader = sh.fragmentShader
+    if (neutral) sh.fragmentShader = '#define NEUTRAL_BLACK\n' + sh.fragmentShader;
+    sh.uniforms.uTime = shared.uTime;
+    sh.uniforms.uRimColor = { value: new THREE.Color(0xff8466) };
+    sh.uniforms.uRimAmt = { value: 0.28 };
+    // the cloak's hem moves in a breeze (aSway marks it; see markCloak)
+    // aMatte marks surfaces that take no rim light (eyebrows: black strips the warm edge light would redden)
+    sh.vertexShader = 'uniform float uTime;\nattribute float aSway;\nattribute float aMatte;\nvarying float vMatte;\n' + sh.vertexShader.replace('#include <begin_vertex>', /* glsl */`
+      #include <begin_vertex>
+      vMatte = aMatte;
+      {
+        float ph = transformed.y * 3.2 + atan(transformed.x, transformed.z) * 0.6;
+        transformed.x += aSway * (sin(uTime * 1.6 + ph) * 0.02 + sin(uTime * 2.9 + ph * 1.7) * 0.008);
+        transformed.z += aSway * (cos(uTime * 1.25 + ph) * 0.016 + 0.01 * (0.5 + 0.5 * sin(uTime * 0.8)));
+      }`);
+    sh.fragmentShader = 'uniform vec3 uRimColor;\nuniform float uRimAmt;\nvarying float vMatte;\n' + sh.fragmentShader
+      // meshes ripped from games often have scrambled winding and normals: shade whichever side faces the viewer
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nif (dot(normal, normalize(vViewPosition)) < 0.0) normal = -normal;')
+      // a warm rim that lifts his silhouette off dark backgrounds, like the anime's dramatic edge light
+      .replace('#include <opaque_fragment>', /* glsl */`
+        {
+          float rimF = pow(1.0 - saturate(dot(normalize(normal), normalize(vViewPosition))), 3.0);
+          outgoingLight += uRimColor * rimF * uRimAmt * (1.0 - gSkin * 0.4) * (1.0 - vMatte);
+          outgoingLight *= 1.0 - vMatte * 0.6; // and stay dark under the warm key light too
+          #ifdef NEUTRAL_BLACK
+            // black hair stays black whatever colour the scene's lights are: keep only the light's
+            // strength, as a faint cool sheen
+            outgoingLight = vec3(dot(outgoingLight, vec3(0.3, 0.59, 0.11))) * vec3(0.62, 0.66, 0.78);
+          #endif
+        }
+        #include <opaque_fragment>`)
       .replace('#include <lights_physical_pars_fragment>', SKIN_PARS + '#include <lights_physical_pars_fragment>')
       .replace('#include <map_fragment>', SKIN_DETECT)
       .replace('#include <roughnessmap_fragment>', SKIN_ROUGH)
@@ -104,8 +158,32 @@ export function skinMaterial(m) {
     sh.fragmentShader = sh.fragmentShader.replace('#include <lights_physical_pars_fragment>',
       THREE.ShaderChunk.lights_physical_pars_fragment.replace(DIRECT_FIND, DIRECT_SSS));
   };
-  t.customProgramCacheKey = () => 'itachi-skin-2';
+  t.customProgramCacheKey = () => (neutral ? 'itachi-skin-6-black' : 'itachi-skin-6');
   return t;
+}
+
+/**
+ * Marks the cloak's hem for the breeze: vertices weighted to the hips/legs that sit well away from the
+ * body's axis (the flared cloak, not the legs inside it or a hand hanging beside it), stronger lower down.
+ */
+export function markCloak(mesh) {
+  const g = mesh.geometry;
+  if (g.attributes.aSway) return;
+  const P = g.attributes.position, SI = g.attributes.skinIndex, SW = g.attributes.skinWeight;
+  const n = P.count, sway = new Float32Array(n);
+  const bones = mesh.skeleton ? mesh.skeleton.bones : [];
+  const legish = bones.map((b) => /hips|upleg|leg|thigh|calf|shin|foot/i.test(b.name) && !/toe/i.test(b.name));
+  g.computeBoundingBox();
+  const bb = g.boundingBox, H = bb.max.y - bb.min.y, cx = (bb.max.x + bb.min.x) / 2, cz = (bb.max.z + bb.min.z) / 2;
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  for (let i = 0; i < n; i++) {
+    let wLeg = 0;
+    if (SI && SW) for (let k = 0; k < 4; k++) if (legish[SI.getComponent(i, k)]) wLeg += SW.getComponent(i, k);
+    const y = (P.getY(i) - bb.min.y) / H;
+    const r = Math.hypot(P.getX(i) - cx, P.getZ(i) - cz) / H;
+    sway[i] = wLeg * ss(0.085, 0.16, r) * (1 - ss(0.2, 0.58, y));
+  }
+  g.setAttribute('aSway', new THREE.BufferAttribute(sway, 1));
 }
 
 /* ------------------------------------------------------------------ */
@@ -117,7 +195,7 @@ export function skinMaterial(m) {
  * same skeleton. Each region gets planar UVs: u across (mirrored for the right side so the inner corner
  * is always u=0), v up.
  */
-function cutDecal(mesh, regions, lift, material) {
+function cutDecal(mesh, regions, lift, material, trustNormals = true) {
   const g = mesh.geometry;
   const P = g.attributes.position, N = g.attributes.normal;
   const SI = g.attributes.skinIndex, SW = g.attributes.skinWeight;
@@ -132,7 +210,8 @@ function cutDecal(mesh, regions, lift, material) {
       const dx = (P.getX(i) - r.cx) / r.rx, dy = (P.getY(i) - r.cy) / r.ry;
       return r.rect ? Math.abs(dx) <= 1 && Math.abs(dy) <= 1 : dx * dx + dy * dy <= 1;
     };
-    const front = (i) => P.getZ(i) > r.cz - 0.05 && N.getZ(i) > 0.05;
+    // the face points +Z; models with scrambled normals are judged by position alone
+    const front = (i) => P.getZ(i) > r.cz - 0.05 && (!trustNormals || N.getZ(i) > 0.05);
     for (let t = 0; t < triCount; t++) {
       const a = vi(t, 0), b = vi(t, 1), c = vi(t, 2);
       if (!(front(a) && front(b) && front(c))) continue;
@@ -142,7 +221,7 @@ function cutDecal(mesh, regions, lift, material) {
         if (j === undefined) {
           j = pos.length / 3;
           map.set(i, j);
-          const nx = N.getX(i), ny = N.getY(i), nz = N.getZ(i);
+          const nx = trustNormals ? N.getX(i) : 0, ny = trustNormals ? N.getY(i) : 0, nz = trustNormals ? N.getZ(i) : 1;
           pos.push(P.getX(i) + nx * lift, P.getY(i) + ny * lift, P.getZ(i) + nz * lift);
           nrm.push(nx, ny, nz);
           const du = (P.getX(i) - r.cx) / (2 * (r.uvRx || r.rx));
@@ -337,6 +416,91 @@ function bloodTexture(W = 128, H = 256, seed = 1) {
   return t;
 }
 
+/**
+ * The Sharingan painted into a model's own eyes: the face texture is copied at a higher resolution, the
+ * whites repainted a little brighter with a soft shadow under the lid, and the iris circle the eye patches
+ * map to redrawn with the current pattern and turn. A black copy holding only the iris is the glow map.
+ * The face materials are cloned so each Itachi keeps its own eyes.
+ */
+class NativeIris {
+  constructor(meshes, cfg) {
+    const src = meshes[0].material.map;
+    const S = 512;
+    this.S = S;
+    this.cfg = cfg;
+    [this.canvas, this.x] = canvas(S, S);
+    [this.base, this.bx] = canvas(S, S);
+    this.bx.imageSmoothingQuality = 'high';
+    this.bx.drawImage(src.image, 0, 0, S, S);
+    // whites: brighter, shadowed under the upper lid and toward the corners
+    const [u0, v0, u1, v1] = cfg.patch;
+    const X0 = u0 * S, Y0 = v0 * S, W = (u1 - u0) * S, H = (v1 - v0) * S;
+    const g = this.bx.createLinearGradient(0, Y0, 0, Y0 + H);
+    g.addColorStop(0, '#8e8580'); g.addColorStop(0.3, '#d9d3cd'); g.addColorStop(0.75, '#e4dfda'); g.addColorStop(1, '#bdb4ae');
+    this.bx.fillStyle = g;
+    this.bx.fillRect(X0 - 4, Y0 - 4, W + 8, H + 8);
+    const cg = this.bx.createRadialGradient(X0 + W / 2, Y0 + H / 2, H * 0.3, X0 + W / 2, Y0 + H / 2, W * 0.62);
+    cg.addColorStop(0, 'rgba(60,40,40,0)'); cg.addColorStop(1, 'rgba(60,40,40,0.45)');
+    this.bx.fillStyle = cg;
+    this.bx.fillRect(X0 - 4, Y0 - 4, W + 8, H + 8);
+    [this.glowC, this.gx] = canvas(S, S);
+    this.map = new THREE.CanvasTexture(this.canvas);
+    this.glow = new THREE.CanvasTexture(this.glowC);
+    for (const t of [this.map, this.glow]) {
+      t.flipY = src.flipY; t.wrapS = src.wrapS; t.wrapT = src.wrapT; t.anisotropy = 4;
+      t.colorSpace = THREE.SRGBColorSpace;
+    }
+    this.mats = meshes.map((m) => {
+      const o = m.material;
+      const c = o.clone();
+      c.onBeforeCompile = o.onBeforeCompile;
+      c.customProgramCacheKey = o.customProgramCacheKey;
+      c.map = this.map;
+      c.emissiveMap = this.glow;
+      c.emissive = new THREE.Color(0xffffff);
+      c.emissiveIntensity = 0;
+      m.material = c;
+      return c;
+    });
+    this.irisImg = new Map();
+  }
+
+  draw(mode, spin) {
+    const { S, x, gx } = this;
+    const [cu, cv, cr] = this.cfg.iris;
+    const cx = cu * S, cy = cv * S, R = cr * S;
+    if (!this.irisImg.has(mode)) this.irisImg.set(mode, sharinganCanvas(mode, 256));
+    const img = this.irisImg.get(mode);
+    x.drawImage(this.base, 0, 0);
+    gx.fillStyle = '#000';
+    gx.fillRect(0, 0, S, S);
+    for (const [ctx, glow] of [[x, false], [gx, true]]) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.beginPath(); ctx.arc(0, 0, R * 0.98, 0, Math.PI * 2); ctx.clip();
+      if (!glow) { ctx.fillStyle = '#0a0304'; ctx.fillRect(-R, -R, 2 * R, 2 * R); }
+      ctx.rotate(spin);
+      ctx.drawImage(img, -R * 0.94, -R * 0.94, R * 1.88, R * 1.88);
+      ctx.restore();
+    }
+    // a dark limbal ring, and the lid's shadow across the top of the iris
+    x.save();
+    x.translate(cx, cy);
+    x.strokeStyle = 'rgba(10,2,3,0.85)';
+    x.lineWidth = R * 0.09;
+    x.beginPath(); x.arc(0, 0, R * 0.93, 0, Math.PI * 2); x.stroke();
+    const sh = x.createLinearGradient(0, -R, 0, -R * 0.2);
+    sh.addColorStop(0, 'rgba(15,5,5,0.7)'); sh.addColorStop(1, 'rgba(15,5,5,0)');
+    x.fillStyle = sh;
+    x.beginPath(); x.arc(0, 0, R * 0.98, 0, Math.PI * 2); x.fill();
+    x.restore();
+    this.map.needsUpdate = true;
+    this.glow.needsUpdate = true;
+  }
+
+  set intensity(v) { for (const m of this.mats) m.emissiveIntensity = v; }
+}
+
 /* ------------------------------------------------------------------ */
 
 export class FaceFX {
@@ -344,44 +508,57 @@ export class FaceFX {
    * @param mesh the skinned body mesh
    * @param cfg  { r: [x,y,z], l: [x,y,z], rx, ry } eye centres / half-size in the mesh's geometry space
    */
-  constructor(mesh, cfg) {
+  constructor(mesh, cfg, model = null) {
     this.group = mesh.parent;
     this.mode = 3;
     this.flare = 0;
     this.spin = 0;
     this.spinTarget = 0;
     const { rx, ry } = cfg;
+    if (cfg.native && model) {
+      const meshes = [];
+      model.traverse((o) => { if (o.isMesh && cfg.native.meshes.includes(o.name)) meshes.push(o); });
+      if (meshes.length) this.native = new NativeIris(meshes, cfg.native);
+    }
+    this._buildBlood(mesh, cfg);
+    if (this.native) { this.setEyes(3); return; }
     const W = 512, H = Math.round(512 * (ry / rx));
     // the uv box is exactly the eye; the cut is a little larger so the painting never clips at a triangle edge
     const eyeRegion = (c, mirror) => ({ cx: c[0], cy: c[1], cz: c[2], rx: rx * 1.1, ry: ry * 1.3, uvRx: rx, mirror, y0: c[1] - ry, y1: c[1] + ry });
     const regions = () => [eyeRegion(cfg.r, true), eyeRegion(cfg.l, false)];
 
     this.scleraMat = decalMat(THREE.MeshStandardMaterial, { map: scleraTexture(W, H), roughness: 0.2, envMapIntensity: 0.3 });
-    this.sclera = cutDecal(mesh, regions(), 0.0006, this.scleraMat);
+    this.sclera = cutDecal(mesh, regions(), 0.0006, this.scleraMat, cfg.normals !== false);
 
     // iris: its own copy of the Sharingan texture so its transform can spin without touching others
     this.irisMat = decalMat(THREE.MeshStandardMaterial, {
       alphaMap: almondMask(W, H), roughness: 0.12, emissive: new THREE.Color(0xffffff), emissiveIntensity: 0.3,
     });
-    this.iris = cutDecal(mesh, regions(), 0.0009, this.irisMat);
+    this.iris = cutDecal(mesh, regions(), 0.0009, this.irisMat, cfg.normals !== false);
     // iris centre and radius in decal uv (the painted almond's middle)
     this.irisC = new THREE.Vector2(0.5, 1 - 0.5);
     const irisR = ry * 0.56; // metres
     this.irisS = new THREE.Vector2(2 * rx / (2 * irisR), 2 * ry / (2 * irisR));
 
     this.lidMat = decalMat(THREE.MeshStandardMaterial, { map: lidTexture(W, H), roughness: 0.6 });
-    this.lids = cutDecal(mesh, regions(), 0.0012, this.lidMat);
+    this.lids = cutDecal(mesh, regions(), 0.0012, this.lidMat, cfg.normals !== false);
 
     this.sclera.renderOrder = 2;
     this.iris.renderOrder = 3;
     this.lids.renderOrder = 4;
     this.group.add(this.sclera, this.iris, this.lids);
 
-    // blood: below each eye, down the cheek
+    this.setEyes(3);
+  }
+
+  /** Blood: below each eye, down the cheek. */
+  _buildBlood(mesh, cfg) {
+    const { rx, ry } = cfg;
     this.blood = {};
     for (const side of ['r', 'l']) {
       const c = cfg[side];
-      const top = c[1] - ry * 0.3, bottom = c[1] - ry * 6.5;
+      // with the model's own eyes the trail starts at the lower lid (the eye is the face itself, not a decal)
+      const top = c[1] - ry * (this.native ? 0.85 : 0.3), bottom = c[1] - ry * 6.5;
       const u = { value: 0 }, fade = { value: 0 };
       const mat = decalMat(THREE.MeshStandardMaterial, { map: bloodTexture(128, 320, side === 'r' ? 7 : 13), color: 0x8c0a12, roughness: 0.28, envMapIntensity: 0.3 });
       mat.map.colorSpace = THREE.NoColorSpace;
@@ -397,18 +574,23 @@ export class FaceFX {
       };
       mat.customProgramCacheKey = () => 'itachi-blood';
       const region = { cx: c[0], cy: (top + bottom) / 2, cz: c[2], rx: rx * 0.8, ry: (top - bottom) / 2, rect: true, mirror: side === 'r', y0: bottom, y1: top }; // canvas top (v = 1) is the lid
-      const m = cutDecal(mesh, [region], 0.0015, mat);
+      const m = cutDecal(mesh, [region], 0.0015, mat, cfg.normals !== false);
       m.renderOrder = 1; // under the eye, so it wells out from beneath the lid
       m.visible = false;
       this.group.add(m);
       this.blood[side] = { mesh: m, flow: u, fade, on: false };
     }
-
-    this.setEyes(3);
   }
 
   /** 0 = onyx, 1–3 = tomoe count, 'mangekyo' */
   setEyes(mode) {
+    if (this.native) {
+      const was = this.mode;
+      this.mode = mode;
+      this.native.draw(mode, this.spin);
+      if (was !== mode && mode !== 0) this.pulse();
+      return;
+    }
     if (mode === this.mode && this.irisMat.map) return;
     const was = this.mode;
     this.mode = mode;
@@ -453,13 +635,14 @@ export class FaceFX {
   update(dt) {
     // spin toward the target with a fast start and soft landing
     const ds = this.spinTarget - this.spin;
-    if (Math.abs(ds) > 1e-4) {
+    if (Math.abs(ds) > 1e-3) {
       this.spin += ds * (1 - Math.exp(-7 * dt));
-      this._applyIris();
+      if (this.native) this.native.draw(this.mode, this.spin); else this._applyIris();
     }
     this.flare = Math.max(0, this.flare - dt * 1.3);
     const glow = this.mode === 0 ? 0.03 : this.mode === 'mangekyo' ? 0.3 : 0.2;
-    this.irisMat.emissiveIntensity = glow + this.flare * 3.2;
+    if (this.native) this.native.intensity = glow * 0.6 + this.flare * 2.2;
+    else this.irisMat.emissiveIntensity = glow + this.flare * 3.2;
     for (const s of ['r', 'l']) {
       const b = this.blood[s];
       if (!b.mesh.visible) continue;

@@ -12,6 +12,7 @@ import { Quiz } from './chapters/Quiz.js';
 import { preloadItachi } from './objects/ItachiGLB.js';
 import { setItachiEnvironment } from './objects/ItachiFace.js';
 import { preloadSusanoo } from './objects/SusanooBody.js';
+import { voice } from './core/Voice.js';
 
 const loader = document.getElementById('loader');
 const bar = document.getElementById('loader-progress');
@@ -65,6 +66,7 @@ async function boot() {
   await frame();
   app.start(first);
   progress(1);
+  document.querySelector('.loader-eye')?.classList.add('ready'); // the Sharingan turns into the Mangekyō
 
   enterBtn.disabled = false;
   enterBtn.textContent = 'Enter the genjutsu';
@@ -72,6 +74,7 @@ async function boot() {
   enterBtn.addEventListener('click', () => {
     if (app.isTouch) app.tilt.request(); // iOS only asks from inside a tap
     app.sfx.unlock();
+    voice.preload();
     app.sfx.setMood(app.current.mood);
     loader.classList.add('done');
     if (app.chapters[first].id === 'prologue') setTimeout(() => app.toast('<b>写輪眼</b> — press and <b>hold</b> the eye to awaken it.', 3200), 1200);

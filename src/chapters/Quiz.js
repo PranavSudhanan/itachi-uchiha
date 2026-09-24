@@ -5,6 +5,7 @@ import { ParticlePool } from '../objects/Particles.js';
 import { createCrowGeometry, createCrowMaterial, addPhases } from '../objects/Crow.js';
 import { rand, damp, TAU, h, shuffle, pick } from '../core/utils.js';
 import { QUIZ, TRIVIA } from '../data/content.js';
+import { voice } from '../core/Voice.js';
 
 const N = 8;
 const RANKS = [
@@ -155,6 +156,7 @@ export class Quiz extends Chapter {
       this.app.sfx.chime();
       const changed = this.eye.setMode(this._modeFor(this.score));
       if (!changed) this.eye.pulse(0.5);
+      else if (this.score === 1) { this.app.sfx.sharingan(); voice.say('sharingan', { subtitle: false }); } // the first tomoe awakens it
       this.embers.burst(new THREE.Vector3(this.eye.group.position.x, this.eye.group.position.y, 1), 60, { speed: 6, life: [0.5, 1.2], size: [0.05, 0.12], colors: this.emberColors });
     } else {
       this.app.sfx.wrong();
@@ -181,6 +183,8 @@ export class Quiz extends Chapter {
       this.eye.setMode('mangekyo');
       this.app.bleed();
       this.app.sfx.awaken();
+      this.app.sfx.mangekyo();
+      voice.say('mangekyo', { subtitle: false, delay: 0.55 });
     }
     const retry = h('button.btn.btn-primary', { type: 'button', text: 'Try again' });
     retry.addEventListener('click', () => { this.app.sfx.click(); this.begin(); });

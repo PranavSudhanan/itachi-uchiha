@@ -476,7 +476,7 @@ export class SusanooBody {
   /* ---------------- the Perfect Susanoo (stage IV) ---------------- */
 
   /**
-   * "Perfect susanoo" by wahidinesport (CC BY 4.0), a static, Z-up model with wings, a sword and a shield.
+   * The Perfect Susanoo model, a static, Z-up model with wings, a sword and a shield.
    * It is sunk to its hips so Itachi stands inside its torso, drawn with the chakra shader (its painted
    * outlines glowing), and its arms swing about the shoulders in the vertex shader so the chapter's slash
    * and mirror gestures still move them.

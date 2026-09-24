@@ -1,9 +1,10 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
 import { voice } from '../core/Voice.js';
 import { createCrowGeometry, createCrowMaterial, addPhases } from '../objects/Crow.js';
 import { ParticlePool } from '../objects/Particles.js';
-import { makeSky, glowTexture, rand, damp, TAU, h, pointerOnPlane, sampleDrawing, drawCloud, toScreen, featherTexture } from '../core/utils.js';
+import { buildDusk } from '../objects/Dusk.js';
+import { glowTexture, rand, damp, TAU, h, pointerOnPlane, sampleDrawing, drawAkatsukiCloud, makeCanvas, toScreen, featherTexture } from '../core/utils.js';
 
 const BOUNDS = new THREE.Vector3(15, 7.5, 8);
 /** Integer key for the spatial hash (no per-frame string allocation). */
@@ -22,7 +23,8 @@ const SHAPES = {
       x.beginPath(); x.arc(cx, cy, R * 0.58, a, a + 0.6); x.lineWidth = hh * 0.05; x.stroke();
     }
   },
-  cloud: (x, w, hh) => { drawCloud(x, w / 2, hh / 2, hh * 0.42); x.fillStyle = '#fff'; x.fill(); },
+  // the crows trace the red cloud's border and its curl: its outline is what makes it the Akatsuki's
+  cloud: (x, w, hh) => drawAkatsukiCloud(x, w / 2, hh / 2, hh * 0.42, { outline: true }),
   kanji: (x, w, hh) => {
     x.font = `900 ${hh * 0.95}px "Noto Serif JP", serif`;
     x.textAlign = 'center'; x.textBaseline = 'middle';
@@ -50,27 +52,25 @@ export class Crows extends Chapter {
 
   build() {
     const s = this.scene;
-    s.add(makeSky('#12040c', '#a0101c', { exponent: 0.55 }));
     s.fog = new THREE.Fog(0x3a0610, 20, 60);
+    // a blood-red dusk: clouds lit around a blood moon, ridges fading into the haze, pines and a bare tree
+    this.dusk = buildDusk(s);
 
-    // moon + glow
-    const moon = new THREE.Mesh(new THREE.CircleGeometry(7, 64), new THREE.MeshBasicMaterial({ color: 0xffd9c8, fog: false }));
-    moon.position.set(9, 3, -45);
-    s.add(moon);
-    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff6040, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    glow.scale.setScalar(40);
-    glow.position.copy(moon.position);
-    s.add(glow);
-
-    // silhouetted hills and a lone tree branch
-    const sil = new THREE.MeshBasicMaterial({ color: 0x07020a, fog: false });
-    const hillShape = new THREE.Shape();
-    hillShape.moveTo(-70, -30);
-    for (let x = -70; x <= 70; x += 5) hillShape.lineTo(x, -12 + Math.sin(x * 0.12) * 2 + Math.sin(x * 0.31) * 1.2);
-    hillShape.lineTo(70, -30);
-    const hills = new THREE.Mesh(new THREE.ShapeGeometry(hillShape), sil);
-    hills.position.z = -30;
-    s.add(hills);
+    // the Akatsuki emblem itself, glowing up behind the crows as they settle into its outline; drawn on
+    // the same canvas mapping as the formation so the two line up exactly
+    {
+      const [c, x] = makeCanvas(640, 320);
+      drawAkatsukiCloud(x, 320, 160, 320 * 0.42);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      // a touch dimmed so the white border doesn't bloom into a halo, and set on a dark patch of sky the
+      // way the cloud sits on the black cloak
+      this.emblem = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.5), new THREE.MeshBasicMaterial({ map: tex, color: 0xa8a8a8, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+      this.emblem.renderOrder = -1;
+      this.emblemGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0x000000, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+      this.emblemGlow.renderOrder = -2;
+      s.add(this.emblemGlow, this.emblem);
+    }
 
     // crows
     this.count = this.app.low ? 160 : 360;
@@ -145,7 +145,17 @@ export class Crows extends Chapter {
     const W = aspect < 0.9 ? 13 : 18;
     const ox = aspect > 1.1 ? 3.5 : 0;
     const pts = sampleDrawing(SHAPES[name], this.count, 320, name === 'name' ? 110 : 160);
-    this.birds.forEach((b, i) => { b.target = new THREE.Vector3(pts[i][0] * W + ox, pts[i][1] * W + (aspect < 0.9 ? 1 : 0.5), rand(-0.6, 0.6)); });
+    const oy = aspect < 0.9 ? 1 : 0.5;
+    // on the outline the crows hold a tight line so the shape reads crisply
+    const depth = name === 'cloud' ? 0.25 : 0.6;
+    this.birds.forEach((b, i) => { b.target = new THREE.Vector3(pts[i][0] * W + ox, pts[i][1] * W + oy, rand(-depth, depth)); });
+    if (name === 'cloud') {
+      this.emblem.scale.set(W, W, 1);
+      this.emblem.position.set(ox, oy, -0.9);
+      this.emblemGlow.position.set(ox, oy, -1.2);
+      this.emblemGlow.scale.set(W * 0.95, W * 0.6, 1);
+      this.app.toast('<b>暁 · Akatsuki</b> — the red cloud of the Akatsuki. Itachi wore it for years, a spy for the Leaf inside the organisation that hunted it.', 5200);
+    }
     this.formation = name;
     this.formTime = 0;
     for (const [k, b] of Object.entries(this.formBtns)) b.classList.toggle('active', k === name);
@@ -281,6 +291,7 @@ export class Crows extends Chapter {
   }
 
   update(dt, t) {
+    this.dusk.sky.userData.uniforms.uTime.value = t;
     const hold = this.trackHold(0.55, true, 0.2);
     if (hold.fired) { this.vortexOn = true; this.release(); this.app.sfx.flutter(); }
     if (!this.app.pointer.down) this.vortexOn = false;
@@ -363,8 +374,12 @@ export class Crows extends Chapter {
 
     if (this.formation) {
       this.formTime += dt;
-      if (this.formTime > 7) this.release();
+      if (this.formTime > (this.formation === 'cloud' ? 9 : 7)) this.release();
     }
+    const showEmblem = this.formation === 'cloud' && this.formTime > 1.2;
+    this.emblem.material.opacity = damp(this.emblem.material.opacity, showEmblem ? 1 : 0, showEmblem ? 1.5 : 4, dt);
+    this.emblemGlow.material.opacity = this.emblem.material.opacity * 0.85;
+    this.emblem.visible = this.emblemGlow.visible = this.emblem.material.opacity > 0.01;
 
     const b0 = this.birds[0];
     this.eyeSprite.position.copy(b0.p).addScaledVector(b0.v.clone().normalize(), 0.3);

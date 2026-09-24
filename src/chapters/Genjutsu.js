@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
 import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -8,6 +8,82 @@ import { makeSky, sharinganTexture, drawTexture, featherTexture, glowTexture, ra
 
 const NORMAL = { skyTop: 0x05060f, skyBottom: 0x1b2238, fog: 0x10152a, ground: 0x0d1020, pillar: 0x2a2e3e, light: 0x8898cc };
 const TSUKU = { skyTop: 0x1a0003, skyBottom: 0xd0101e, fog: 0x5a0008, ground: 0x050000, pillar: 0x000000, light: 0xff4050 };
+
+const NOISE2 = /* glsl */ `
+float hash2(vec2 p){ p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float a = hash2(i), b = hash2(i + vec2(1.0, 0.0)), c = hash2(i + vec2(0.0, 1.0)), d = hash2(i + vec2(1.0, 1.0));
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++){ v += a * vnoise(p); p = p * 2.03 + 1.7; a *= 0.5; } return v; }
+`;
+
+/**
+ * A dome of drifting clouds between the camera and the moon: moonlit navy banks with silver edges,
+ * and in Tsukuyomi the anime's black clouds rimmed in red, streaming faster.
+ */
+function cloudDome(moonDir) {
+  const uniforms = {
+    uTime: { value: 0 }, uK: { value: 0 }, uMoon: { value: moonDir.clone().normalize() },
+    uBody: { value: new THREE.Color(0x0b0f1c) }, uEdge: { value: new THREE.Color(0x8a96c0) },
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms, side: THREE.BackSide, transparent: true, depthWrite: false, fog: false,
+    vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: /* glsl */ `
+      uniform float uTime; uniform float uK; uniform vec3 uMoon; uniform vec3 uBody; uniform vec3 uEdge; varying vec3 vD;
+      ${NOISE2}
+      void main(){
+        vec3 d = normalize(vD);
+        if (d.y < -0.02) discard;
+        // project onto a cloud ceiling so the banks shrink toward the horizon
+        vec2 uv = d.xz / (d.y + 0.18) * 0.9;
+        float t = uTime * (0.012 + uK * 0.05);
+        vec2 flow = vec2(t, t * 0.35);
+        float n = fbm(uv + flow + fbm(uv * 0.6 - flow) * 0.8);
+        float dens = smoothstep(0.46 - uK * 0.06, 0.78, n) * smoothstep(0.0, 0.14, d.y);
+        if (dens < 0.01) discard;
+        // thin edges catch the light, brightest around the moon
+        float moon = pow(max(dot(d, uMoon), 0.0), 6.0);
+        float edge = (1.0 - smoothstep(0.1, 0.55, dens)) * (0.35 + moon * 1.6);
+        vec3 col = mix(uBody, uEdge, clamp(edge, 0.0, 1.0));
+        gl_FragColor = vec4(col, dens * 0.92);
+        #include <colorspace_fragment>
+      }`,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(50, 48, 24), mat);
+  mesh.renderOrder = -3;
+  mesh.userData.uniforms = uniforms;
+  return mesh;
+}
+
+/** Low mist drifting over the water. */
+function mistLayer() {
+  const uniforms = { uTime: { value: 0 }, uColor: { value: new THREE.Color(0x5a6a90) }, uAmt: { value: 0.2 } };
+  const mat = new THREE.ShaderMaterial({
+    uniforms, transparent: true, depthWrite: false, fog: false,
+    vertexShader: 'varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }',
+    fragmentShader: /* glsl */ `
+      uniform float uTime; uniform vec3 uColor; uniform float uAmt; varying vec3 vW;
+      ${NOISE2}
+      void main(){
+        vec2 p = vW.xz * 0.06 + vec2(uTime * 0.02, uTime * 0.008);
+        float n = fbm(p + fbm(p * 1.7 + uTime * 0.01));
+        float d = length(vW.xz - vec2(0.0, -8.0));
+        float a = smoothstep(0.35, 0.8, n) * uAmt * (1.0 - smoothstep(30.0, 60.0, d));
+        gl_FragColor = vec4(uColor, a);
+        #include <colorspace_fragment>
+      }`,
+  });
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), mat);
+  m.rotation.x = -Math.PI / 2;
+  m.position.y = 0.35;
+  m.renderOrder = 1;
+  m.userData.uniforms = uniforms;
+  return m;
+}
 
 const IZANAMI_LINES = [
   'A single feather falls. You have seen this moment before.',
@@ -62,7 +138,7 @@ export class Genjutsu extends Chapter {
           vec2 q = mat2(c,-s,s,c) * p + 0.5;
           vec4 a = texture2D(uA, vUv); vec4 b = texture2D(uB, q);
           float wipe = smoothstep(uK * 1.2 - 0.2, uK * 1.2, length(p) * 2.0);
-          vec4 col = mix(b * vec4(1.6, 1.2, 1.2, 1.0), a, wipe);
+          vec4 col = mix(b * vec4(1.6, 1.2, 1.2, 1.0), a * vec4(0.8, 0.82, 0.88, 1.0), wipe);
           gl_FragColor = col;
           #include <colorspace_fragment>
         }`,
@@ -70,10 +146,16 @@ export class Genjutsu extends Chapter {
     moon.position.set(0, 14, -55);
     this.moon = moon;
     s.add(moon);
-    this.moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xaab8ff, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    this.moonGlow.scale.setScalar(70);
+    this.moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xaab8ff, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+    this.moonGlow.scale.setScalar(52);
+    moon.renderOrder = -5;
+    this.moonGlow.renderOrder = -4;
     this.moonGlow.position.copy(moon.position).add(new THREE.Vector3(0, 0, -1));
     s.add(this.moonGlow);
+    this.clouds = cloudDome(moon.position);
+    s.add(this.clouds);
+    this.mist = mistLayer();
+    s.add(this.mist);
 
     // still, mirror-like water
     this.water = createMirrorWater({ size: 170, resolution: this.app.low ? 0.3 : 0.5 });
@@ -128,16 +210,36 @@ export class Genjutsu extends Chapter {
     this.world = new THREE.Group();
     s.add(this.world);
     this.pillars = [];
-    for (let i = 0; i < 26; i++) {
-      const a = rand(0, TAU), r = rand(16, 36);
+    for (let i = 0, tries = 0; i < 26 && tries < 400; tries++) {
+      const a = rand(0, TAU), r = rand(18, 40);
+      const px = Math.cos(a) * r, pz = Math.sin(a) * r - 6;
+      // well clear of the camera's orbit (radius 12–16 about the origin) and not in front of the torii
+      if (Math.hypot(px, pz) < 22 || (Math.abs(px) < 10 && pz < -4)) continue;
+      i++;
       const hgt = rand(2, 9);
       const m = new THREE.Mesh(new THREE.BoxGeometry(rand(0.4, 1.2), hgt, rand(0.4, 1.2)), this.pillarMat);
-      m.position.set(Math.cos(a) * r, hgt / 2 + rand(-1, 3), Math.sin(a) * r - 6);
+      m.position.set(px, hgt / 2 + rand(-1, 3), pz);
       m.rotation.set(rand(-0.15, 0.15), rand(0, TAU), rand(-0.15, 0.15));
       m.userData = { base: m.position.y, ph: rand(0, TAU) };
       this.world.add(m);
       this.pillars.push(m);
     }
+
+    // Tsukuyomi's crosses: they rise out of the water when the genjutsu takes hold
+    const crossMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+    this.crosses = [[-8.5, -25, 0.15], [9, -29, -0.2], [0, -38, 0]].map(([x, z, ry]) => {
+      const c = new THREE.Group();
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.34, 8, 0.34), crossMat);
+      post.position.y = 4;
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(4, 0.3, 0.3), crossMat);
+      beam.position.y = 6.3;
+      c.add(post, beam);
+      c.position.set(x, -9, z);
+      c.rotation.y = ry;
+      c.visible = false;
+      s.add(c);
+      return c;
+    });
 
     // particles: drifting motes (upward "time reversal" in Tsukuyomi)
     this.motes = new ParticlePool({ count: this.app.low ? 500 : 1200, turbulence: 0.5, drag: 0.2 });
@@ -337,6 +439,20 @@ export class Genjutsu extends Chapter {
     this.moonLight.color.copy(mix(0xdde4ff, 0xff2a3a));
     this.moonGlow.material.color.copy(mix(0xaab8ff, 0xff1020));
     this.moonUniforms.uK.value = k;
+    const cu = this.clouds.userData.uniforms;
+    cu.uTime.value = t;
+    cu.uK.value = k;
+    cu.uBody.value.copy(mix(0x0b0f1c, 0x030000));
+    cu.uEdge.value.copy(mix(0x8a96c0, 0xff2a30));
+    const mu = this.mist.userData.uniforms;
+    mu.uTime.value = t;
+    mu.uColor.value.copy(mix(0x5a6a90, 0x3a0006));
+    mu.uAmt.value = 0.2 + k * 0.15;
+    this.crosses.forEach((c, i) => {
+      const e = clamp((k - 0.15 - i * 0.12) / 0.6, 0, 1);
+      c.visible = e > 0;
+      c.position.y = -9 * (1 - e * (2 - e));
+    });
     this.moonUniforms.uRot.value -= dt * (0.2 + k * 0.6);
     this.bloom.strength = 0.9 + k * 0.5;
 

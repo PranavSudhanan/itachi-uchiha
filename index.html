@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -16,19 +16,16 @@
     <canvas id="webgl" aria-label="Interactive 3D scene"></canvas>
 
     <div id="loader" aria-live="polite">
-      <div class="loader-eye" aria-hidden="true">
-        <span></span><span></span><span></span>
-      </div>
+      <div class="loader-eye" aria-hidden="true"><svg class="eye-svg" viewBox="-50 -50 100 100" aria-hidden="true"><defs><radialGradient id="iris-a"><stop offset="0" stop-color="#ff5a4a"/><stop offset=".45" stop-color="#d8142c"/><stop offset=".82" stop-color="#8c0014"/><stop offset="1" stop-color="#2a0006"/></radialGradient></defs><circle r="47" fill="url(#iris-a)"/><circle r="47" fill="none" stroke="#0a0003" stroke-width="3.5"/><g class="eye-sh"><circle r="22" fill="none" stroke="#0a0003" stroke-opacity=".5" stroke-width="1.1"/><g class="eye-tomoe" fill="#0a0003"><g transform="rotate(0)"><path d="M0.0 -29.0A29 29 0 0 0 -21.65 -12.5Q-9.01 -14.42 0.52 -14.99Z"/><circle cy="-22" r="6.8"/></g><g transform="rotate(120)"><path d="M0.0 -29.0A29 29 0 0 0 -21.65 -12.5Q-9.01 -14.42 0.52 -14.99Z"/><circle cy="-22" r="6.8"/></g><g transform="rotate(240)"><path d="M0.0 -29.0A29 29 0 0 0 -21.65 -12.5Q-9.01 -14.42 0.52 -14.99Z"/><circle cy="-22" r="6.8"/></g></g><circle class="eye-pupil" r="8.5" fill="#050000"/></g><g class="eye-ms" fill="#0a0003"><g transform="rotate(0)"><path d="M-9.53 -5.5Q-18.78 -35.32 38.55 -26.0A46.5 46.5 0 0 1 45.48 -9.67Q18.7 -18.06 9.97 -4.65Z"/></g><g transform="rotate(120)"><path d="M-9.53 -5.5Q-18.78 -35.32 38.55 -26.0A46.5 46.5 0 0 1 45.48 -9.67Q18.7 -18.06 9.97 -4.65Z"/></g><g transform="rotate(240)"><path d="M-9.53 -5.5Q-18.78 -35.32 38.55 -26.0A46.5 46.5 0 0 1 45.48 -9.67Q18.7 -18.06 9.97 -4.65Z"/></g><circle r="12.5"/><circle r="4.2" fill="#8a0a16"/></g><ellipse cx="-16" cy="-21" rx="8" ry="4.2" transform="rotate(-35 -16 -21)" fill="#fff" opacity=".16"/></svg></div>
       <p class="loader-jp">うちはイタチ</p>
       <h1 class="loader-title">Itachi Uchiha</h1>
       <p class="loader-sub">The Crow of the Leaf</p>
       <div class="loader-bar"><i id="loader-progress"></i></div>
       <button id="enter-btn" class="btn btn-primary" disabled>Preparing genjutsu…</button>
       <p class="loader-hint">Best with sound on · drag, tap and explore everything</p>
-      <p class="loader-legal">Unofficial fan tribute. Naruto © Masashi Kishimoto / Shueisha / Studio Pierrot.</p>
     </div>
 
-    <div id="transition" aria-hidden="true"><div class="t-eye"></div></div>
+    <div id="transition" aria-hidden="true"><div class="t-eye"><svg class="eye-svg" viewBox="-50 -50 100 100" aria-hidden="true"><defs><radialGradient id="iris-b"><stop offset="0" stop-color="#ff5a4a"/><stop offset=".45" stop-color="#d8142c"/><stop offset=".82" stop-color="#8c0014"/><stop offset="1" stop-color="#2a0006"/></radialGradient></defs><circle r="47" fill="url(#iris-b)"/><circle r="47" fill="none" stroke="#0a0003" stroke-width="3.5"/><g class="eye-sh"><circle r="22" fill="none" stroke="#0a0003" stroke-opacity=".5" stroke-width="1.1"/><g class="eye-tomoe" fill="#0a0003"><g transform="rotate(0)"><path d="M0.0 -29.0A29 29 0 0 0 -21.65 -12.5Q-9.01 -14.42 0.52 -14.99Z"/><circle cy="-22" r="6.8"/></g><g transform="rotate(120)"><path d="M0.0 -29.0A29 29 0 0 0 -21.65 -12.5Q-9.01 -14.42 0.52 -14.99Z"/><circle cy="-22" r="6.8"/></g><g transform="rotate(240)"><path d="M0.0 -29.0A29 29 0 0 0 -21.65 -12.5Q-9.01 -14.42 0.52 -14.99Z"/><circle cy="-22" r="6.8"/></g></g><circle class="eye-pupil" r="8.5" fill="#050000"/></g><ellipse cx="-16" cy="-21" rx="8" ry="4.2" transform="rotate(-35 -16 -21)" fill="#fff" opacity=".16"/></svg></div></div>
 
     <header class="topbar">
       <button class="brand" data-goto="0" aria-label="Back to the prologue">

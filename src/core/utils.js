@@ -268,16 +268,53 @@ export function cloudShape(scale = 1) {
   traceCloud(s, scale, scale);
   return s;
 }
-export function drawCloud(x, cx, cy, size) {
+/*
+ * The Akatsuki's red cloud as drawn on the cloaks: rounded lobes merged into one cloud, a white border
+ * all round, and a white curl turning in on itself inside the lower-left lobe.
+ * Lobes are (x, y, r) in units of the cloud's size, canvas y down.
+ */
+const AKATSUKI_LOBES = [
+  [-0.58, 0.14, 0.36], [-0.3, -0.24, 0.42], [0.26, -0.28, 0.46], [0.68, 0.0, 0.36],
+  [0.44, 0.26, 0.3], [0.06, 0.24, 0.36], [-0.28, 0.26, 0.3],
+];
+const lobes = (x, cx, cy, s, grow) => {
   x.beginPath();
-  traceCloud(x, size, -size, cx, cy);
-  x.closePath();
-  x.lineJoin = 'round';
-  x.lineWidth = size * 0.16;
-  x.strokeStyle = '#f3efe8';
-  x.stroke();
-  x.fillStyle = '#c1121f';
+  for (const [lx, ly, r] of AKATSUKI_LOBES) { x.moveTo(cx + lx * s + (r * s + grow), cy + ly * s); x.arc(cx + lx * s, cy + ly * s, r * s + grow, 0, TAU); }
+};
+const curl = (x, cx, cy, s) => {
+  // a spiral opening outward from the centre of the lower-left lobe
+  const ox = cx - 0.5 * s, oy = cy + 0.1 * s;
+  x.beginPath();
+  for (let i = 0; i <= 40; i++) {
+    const t = i / 40, a = -Math.PI * 0.2 + t * Math.PI * 1.55, r = s * (0.05 + t * 0.2);
+    const px = ox + Math.cos(a) * r, py = oy + Math.sin(a) * r;
+    i ? x.lineTo(px, py) : x.moveTo(px, py);
+  }
+};
+
+/**
+ * Draws the Akatsuki cloud centred at (cx, cy), `size` ≈ half its height. `outline: true` draws only the
+ * border and the curl in white (for tracing the shape with crows).
+ */
+export function drawAkatsukiCloud(x, cx, cy, size, { outline = false, fill = '#c1121f', border = '#f3efe8' } = {}) {
+  const b = size * 0.11;
+  x.save();
+  x.lineCap = x.lineJoin = 'round';
+  x.fillStyle = outline ? '#fff' : border;
+  lobes(x, cx, cy, size, b);
   x.fill();
+  x.fillStyle = outline ? '#000' : fill;
+  lobes(x, cx, cy, size, 0);
+  x.fill();
+  x.strokeStyle = outline ? '#fff' : border;
+  x.lineWidth = b * 0.85;
+  curl(x, cx, cy, size);
+  x.stroke();
+  x.restore();
+}
+
+export function drawCloud(x, cx, cy, size) {
+  drawAkatsukiCloud(x, cx, cy, size);
 }
 
 let _cloak;

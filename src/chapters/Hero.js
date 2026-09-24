@@ -188,7 +188,7 @@ export class Hero extends Chapter {
     const [name, jp, text] = MODE_INFO[mode];
     this.modePill.innerHTML = `Eye <b>${name}</b>`;
     this.app.toast(`<b>${jp}</b> · ${name}<br>${text}`);
-    if (mode === 'mangekyo') { this.app.sfx.mangekyo(); voice.say('mangekyo', { subtitle: false }); }
+    if (mode === 'mangekyo') { this.app.sfx.mangekyo(); voice.say('mangekyo', { subtitle: false, delay: 0.55 }); }
     else if (mode) { this.app.sfx.sharingan(); voice.say('sharingan', { subtitle: false }); }
     else this.app.sfx.whoosh();
     this.kick = 1;
