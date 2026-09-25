@@ -1,10 +1,11 @@
 {
-  "prologue":     { "file": "itachi_theme.mp3", "gain": 0.85 },
-  "chronicle":    { "file": "senya.mp3", "gain": 0.7 },
-  "relics":       { "file": "itachi_theme.mp3", "gain": 0.8 },
-  "training":     { "file": "itachi_theme.mp3", "gain": 0.7, "battle": { "file": "itachi.mp3", "gain": 0.55 } },
-  "precognition": { "file": "senya.mp3", "gain": 0.55, "battle": { "file": "itachi.mp3", "gain": 0.5 } },
-  "crows":        { "file": "senya.mp3", "gain": 0.65 },
-  "amaterasu":    { "file": "itachi.mp3", "gain": 0.5 },
-  "susanoo":      { "file": "itachi.mp3", "gain": 0.55 }
+  "prologue": {"file": "itachi_theme.mp3", "gain": 0.85},
+  "chronicle": {"file": "senya.mp3", "gain": 0.7},
+  "memorial": {"file": "senya.mp3", "gain": 0.6},
+  "relics": {"file": "itachi_theme.mp3", "gain": 0.8},
+  "training": {"file": "itachi_theme.mp3", "gain": 0.7, "battle": {"file": "itachi.mp3", "gain": 0.55}},
+  "precognition": {"file": "senya.mp3", "gain": 0.55, "battle": {"file": "itachi.mp3", "gain": 0.5}},
+  "crows": {"file": "senya.mp3", "gain": 0.65},
+  "amaterasu": {"file": "itachi.mp3", "gain": 0.5},
+  "susanoo": {"file": "itachi.mp3", "gain": 0.55}
 }

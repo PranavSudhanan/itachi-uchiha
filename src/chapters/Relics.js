@@ -30,7 +30,7 @@ export class Relics extends Chapter {
 
     const pmrem = new THREE.PMREMGenerator(this.app.renderer);
     s.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    s.environmentIntensity = 0.45;
+    s.environmentIntensity = 0.3;
 
     s.add(new THREE.HemisphereLight(0x6a5048, 0x0a0605, 1.0));
     const spot = new THREE.SpotLight(0xfff0e8, 48, 30, 0.5, 0.8, 1.5);
@@ -78,9 +78,13 @@ export class Relics extends Chapter {
       const bays = 4, bw = w / bays;
       for (let b = 0; b < bays; b++) {
         const x0 = b * bw;
-        const g = x.createRadialGradient(x0 + bw / 2, hh * 0.55, 10, x0 + bw / 2, hh * 0.55, bw * 0.7);
-        g.addColorStop(0, '#b8844a'); g.addColorStop(1, '#4a2e18');
+        const lx = x0 + bw * rand(0.3, 0.7), ly = hh * rand(0.45, 0.7), bright = rand(0.55, 1);
+        const g = x.createRadialGradient(lx, ly, 10, lx, ly, bw * rand(0.6, 0.9));
+        g.addColorStop(0, `rgb(${184 * bright | 0},${132 * bright | 0},${74 * bright | 0})`); g.addColorStop(1, '#3a2414');
         x.fillStyle = g; x.fillRect(x0 + 26, hh * 0.18, bw - 52, hh * 0.7);
+        // washi fibres and a few stains in the paper
+        for (let i = 0; i < 700; i++) { x.fillStyle = `rgba(255,230,190,${rand(0.02, 0.08)})`; x.fillRect(x0 + 26 + rand(0, bw - 52), hh * 0.18 + rand(0, hh * 0.7), rand(2, 10), 1); }
+        for (let i = 0; i < 3; i++) { x.fillStyle = 'rgba(60,36,18,0.12)'; x.beginPath(); x.ellipse(x0 + rand(40, bw - 40), hh * rand(0.25, 0.8), rand(8, 22), rand(6, 16), 0, 0, TAU); x.fill(); }
         x.strokeStyle = '#1a0f09'; x.lineWidth = 5;
         for (let i = 1; i < 4; i++) { x.beginPath(); x.moveTo(x0 + 26 + (i * (bw - 52)) / 4, hh * 0.18); x.lineTo(x0 + 26 + (i * (bw - 52)) / 4, hh * 0.88); x.stroke(); }
         for (let j = 1; j < 6; j++) { x.beginPath(); x.moveTo(x0 + 26, hh * 0.18 + (j * hh * 0.7) / 6); x.lineTo(x0 + bw - 26, hh * 0.18 + (j * hh * 0.7) / 6); x.stroke(); }
@@ -93,6 +97,71 @@ export class Relics extends Chapter {
     const walls = new THREE.Mesh(new THREE.CylinderGeometry(13, 13, 8, 64, 1, true), new THREE.MeshStandardMaterial({ map: wallTex, emissive: 0xffffff, emissiveMap: wallTex, emissiveIntensity: 0.07, roughness: 0.9, color: 0x9a8a80, side: THREE.BackSide }));
     walls.position.y = 4;
     s.add(walls);
+    // the hall's frame: square timber posts round the wall, a ring beam, radial beams and a coffered ceiling
+    {
+      const grain = drawTexture(128, 512, (x, w, hh) => {
+        x.fillStyle = '#2c1c12'; x.fillRect(0, 0, w, hh);
+        for (let i = 0; i < 80; i++) { x.strokeStyle = `rgba(${rand(10, 60)},${rand(8, 40)},${rand(4, 26)},0.5)`; x.lineWidth = rand(0.5, 2); x.beginPath(); const px = rand(0, w); x.moveTo(px, 0); x.bezierCurveTo(px + rand(-8, 8), hh / 3, px + rand(-8, 8), (hh * 2) / 3, px + rand(-6, 6), hh); x.stroke(); }
+      });
+      const timber = new THREE.MeshStandardMaterial({ map: grain, bumpMap: grain, bumpScale: 1.2, roughness: 0.7 });
+      const bannerAng = -Math.PI / 2;
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * TAU + Math.PI / 12;
+        if (Math.abs(Math.atan2(Math.sin(a - bannerAng), Math.cos(a - bannerAng))) < 0.1) continue;
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.42, 8, 0.42), timber);
+        post.position.set(Math.cos(a) * 12.6, 4, Math.sin(a) * 12.6);
+        post.rotation.y = -a;
+        post.castShadow = true;
+        s.add(post);
+      }
+      const ringBeam = new THREE.Mesh(new THREE.TorusGeometry(12.55, 0.22, 6, 96), timber);
+      ringBeam.rotation.x = Math.PI / 2;
+      ringBeam.position.y = 7.6;
+      s.add(ringBeam);
+      for (let i = 0; i < 6; i++) {
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(25.2, 0.34, 0.3), timber);
+        beam.position.y = 7.9;
+        beam.rotation.y = (i / 6) * Math.PI;
+        s.add(beam);
+      }
+      const ceilTex = drawTexture(512, 512, (x, w) => {
+        x.fillStyle = '#1a110b'; x.fillRect(0, 0, w, w);
+        for (let y = 0; y < w; y += 64) for (let px = 0; px < w; px += 64) {
+          const l = rand(28, 44);
+          x.fillStyle = `rgb(${l},${l * 0.68},${l * 0.45})`; x.fillRect(px + 5, y + 5, 54, 54);
+          x.strokeStyle = 'rgba(8,5,3,0.8)'; x.lineWidth = 3; x.strokeRect(px + 5, y + 5, 54, 54);
+        }
+      });
+      ceilTex.wrapS = ceilTex.wrapT = THREE.RepeatWrapping;
+      ceilTex.repeat.set(4, 4);
+      const ceiling = new THREE.Mesh(new THREE.CircleGeometry(13, 64), new THREE.MeshStandardMaterial({ map: ceilTex, roughness: 0.9, side: THREE.DoubleSide }));
+      ceiling.rotation.x = Math.PI / 2;
+      ceiling.position.y = 8.1;
+      s.add(ceiling);
+      // paper lanterns hanging low between the plinths, one warm light among them
+      const paper = drawTexture(128, 128, (x, w) => {
+        const g = x.createLinearGradient(0, 0, 0, w); g.addColorStop(0, '#e8c898'); g.addColorStop(0.5, '#fff0d4'); g.addColorStop(1, '#e8c898');
+        x.fillStyle = g; x.fillRect(0, 0, w, w);
+        x.strokeStyle = 'rgba(110,70,36,0.45)'; x.lineWidth = 2;
+        for (let y = 8; y < w; y += 12) { x.beginPath(); x.moveTo(0, y); x.lineTo(w, y); x.stroke(); }
+      });
+      const prof = [];
+      for (let i = 0; i <= 12; i++) { const y = -0.3 + (i / 12) * 0.6; prof.push(new THREE.Vector2(0.12 + Math.cos((y / 0.3) * Math.PI / 2) * 0.16, y)); }
+      const lgeo = new THREE.LatheGeometry(prof, 20);
+      const lmat = new THREE.MeshStandardMaterial({ map: paper, emissive: 0xffa050, emissiveMap: paper, emissiveIntensity: 0.9, roughness: 0.8 });
+      const cord = new THREE.MeshBasicMaterial({ color: 0x0a0806 });
+      [[-7, -6], [7, -6], [-8, 5], [8, 5]].forEach(([lx, lz]) => {
+        const l = new THREE.Mesh(lgeo, lmat);
+        l.position.set(lx, 5.2, lz);
+        const c = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 2.6, 4), cord);
+        c.position.set(lx, 6.8, lz);
+        s.add(l, c);
+      });
+      const warm = new THREE.PointLight(0xffa860, 7, 16, 1.6);
+      warm.position.set(0, 5, -4);
+      s.add(warm);
+    }
+
     // the Uchiha crest on a hanging banner behind the display
     const banner = drawTexture(256, 512, (x, w, hh) => {
       x.fillStyle = '#16100e'; x.fillRect(0, 0, w, hh);
@@ -305,7 +374,7 @@ export class Relics extends Chapter {
     const g = new THREE.Group();
     const shape = new THREE.Shape();
     shape.moveTo(0, 1.0); shape.lineTo(0.2, 0.26); shape.lineTo(0.06, 0); shape.lineTo(-0.06, 0); shape.lineTo(-0.2, 0.26); shape.closePath();
-    const blade = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.02, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.02, bevelSegments: 2 }), this._metal(0x5a5f68, 0.22));
+    const blade = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.02, bevelEnabled: true, bevelThickness: 0.025, bevelSize: 0.02, bevelSegments: 2 }), this._metal(0x50555c, 0.42)); // worn, not mirror-polished: it doesn't flare under the spotlight
     blade.position.z = -0.01;
     g.add(blade);
     const wrapTex = drawTexture(64, 256, (x, w, hh) => {

@@ -1,6 +1,7 @@
-﻿import { App } from './core/App.js';
+import { App } from './core/App.js';
 import { Hero } from './chapters/Hero.js';
 import { Chronicle } from './chapters/Chronicle.js';
+import { Memorial } from './chapters/Memorial.js';
 import { Relics } from './chapters/Relics.js';
 import { Training } from './chapters/Training.js';
 import { Precognition } from './chapters/Precognition.js';
@@ -55,7 +56,7 @@ async function boot() {
   const app = new App();
   setItachiEnvironment(app.renderer);
   window.__itachi = app;
-  [Hero, Chronicle, Relics, Training, Precognition, Crows, Amaterasu, Genjutsu, Susanoo, Quiz].forEach((C) => app.add(new C(app)));
+  [Hero, Chronicle, Memorial, Relics, Training, Precognition, Crows, Amaterasu, Genjutsu, Susanoo, Quiz].forEach((C) => app.add(new C(app)));
   app.buildNav();
 
   const fromHash = app.chapters.findIndex((c) => c.id === location.hash.slice(1));
