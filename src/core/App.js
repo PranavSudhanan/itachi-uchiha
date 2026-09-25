@@ -1,4 +1,4 @@
-﻿import { Tilt, ripple, enableHaptics } from './Mobile.js';
+import { Tilt, ripple, enableHaptics } from './Mobile.js';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -22,7 +22,7 @@ export class App {
     this.low = this.isMobile;
     this.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
     this.phoneLayout = matchMedia('(max-width: 760px), (max-height: 560px) and (orientation: landscape)');
-    // phones: tilt to look around, a ripple under every touch, haptics on the big moments
+    // phones: tilt that each scene maps to its own motion, a ripple under every touch, haptics on the big moments
     this.tilt = new Tilt();
     if (this.isTouch) enableHaptics(sfx);
     // the mobile HUD sits above each chapter's control bar, whatever its height
@@ -267,8 +267,14 @@ export class App {
 
   /* ---------------- helpers ---------------- */
 
-  raycast(objects, recursive = true) {
-    this.raycaster.setFromCamera(this.pointer.ndc, this.current.camera);
+  /**
+   * The phone's tilt when the gyroscope is live (x: tilted right +, y: top tilted toward you +, both about
+   * -1..1), else null. Chapters map it to something in their own scene.
+   */
+  get gyro() { return this.tilt.active && !this.reducedMotion ? this.tilt : null; }
+
+  raycast(objects, recursive = true, ndc = this.pointer.ndc) {
+    this.raycaster.setFromCamera(ndc, this.current.camera);
     return this.raycaster.intersectObjects(objects, recursive);
   }
 
@@ -551,8 +557,8 @@ export class App {
     if (p.down && p.moved < HOLD_SLOP) p.holdTime += dt;
     else if (p.down) p.holdTime = 0;
 
-    const cam = this.renderPass.camera;
-    if (this._tiltSaved) { cam.quaternion.copy(this._tiltSaved); this._tiltSaved = null; }
+    // tilt is read by each chapter (app.gyro), which gives it a meaning of its own
+    if (this.tilt.active) this.tilt.update(dt);
 
     this._chargeSet = false;
     ch.update(dt, this._t);
@@ -575,14 +581,6 @@ export class App {
     u.uTint.value.lerp(this._tint.set(g.tint), 1 - Math.exp(-5 * dt));
     this.flashAmt = damp(this.flashAmt, 0, 7, dt);
     u.uFlash.value = this.flashAmt;
-
-    if (this.tilt.active && !this.reducedMotion) {
-      this.tilt.update(dt);
-      this._tiltSaved = cam.quaternion.clone();
-      cam.rotateY(-this.tilt.x * 0.075);
-      cam.rotateX(-this.tilt.y * 0.055);
-      cam.updateMatrixWorld();
-    }
 
     this.composer.render(dt);
     this._drawTrail(now);

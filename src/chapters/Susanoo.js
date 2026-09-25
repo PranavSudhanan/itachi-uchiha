@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
 import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -845,8 +845,10 @@ export class Susanoo extends Chapter {
     // orbit camera
     this.idle += dt;
     if (this.idle > 2.5 && !this.game.on) this.yawT += dt * 0.12;
-    this.yaw = damp(this.yaw, this.yawT, 5, dt);
-    this.pitch = damp(this.pitch, this.pitchT, 5, dt);
+    // on a phone, tilting leans the view around the Susanoo and up toward its head
+    const gyro = this.app.gyro;
+    this.yaw = damp(this.yaw, this.yawT + (gyro ? gyro.x * 0.5 : 0), 5, dt);
+    this.pitch = damp(this.pitch, this.pitchT + (gyro ? -gyro.y * 0.18 : 0), 5, dt);
     const portrait = this.app.width / this.app.height < 0.9;
     const tall = this.stage >= 4 && this.body.perfect ? 1 : 0;
     const dist = (this.game.on ? (portrait ? 34 : 25) : (portrait ? 27 : 19) - (this.stage === 0 ? (portrait ? 12 : 9) : 0)) + tall * (portrait ? 8 : 5);

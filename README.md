@@ -66,7 +66,7 @@ Each technique: the signs in a medium shot, every sign snapping in with an anime
 
 ## On phones
 
-- **Tilt to look around:** the gyroscope turns the camera a little, like looking through a window. The neutral angle re-centres slowly to however you hold the phone. iOS asks for motion access when you tap *Enter*, and reduced-motion settings turn it off.
+- **Tilt:** the gyroscope never tilts the whole view; each scene gives it a meaning of its own. Prologue and Trials: the Sharingan's gaze follows the tilt (only the far skyline shifts a touch for depth, and feathers drift with it). Chronicle and Training: a gentle turn of the head. Relics: the relic you hold turns to show its sides. Precognition: lean to dodge, and a blade you lean out of misses. Crows: the tilt is the wind that blows the flock. Amaterasu: the tilt aims Itachi's gaze, and holding anywhere ignites where it points, so no finger covers the target. Tsukuyomi and Susanoo: the view leans around the scene. The neutral angle re-centres slowly to however you hold the phone. iOS asks for motion access when you tap *Enter*, and reduced-motion settings turn it off.
 - **Touch feedback:** a chakra ripple spreads from every touch. On phones that support it, haptics mark hand signs, slashes, jutsu impacts, hits and quiz answers.
 - **Guides tuck away:** each chapter's guides show on arrival and fold away after your first touch (or 9 s). The *Guide* pill brings them back. When a chapter's own panel or card is open, it takes priority over the guides.
 - **Layouts:** portrait uses a bottom tab bar, and the HUD rides above each chapter's control bar whatever its height. Landscape uses a compact dot nav, the intro on the left, and panels and controls on the right.

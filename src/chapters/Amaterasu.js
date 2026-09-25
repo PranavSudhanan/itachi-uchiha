@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
 import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -409,11 +409,22 @@ export class Amaterasu extends Chapter {
     this.app.sfx.poof();
   }
 
+  /**
+   * Where Itachi's gaze falls: under the pointer, or on a phone with the gyroscope live, wherever the tilt
+   * aims it (so the target isn't hidden under a finger; holding anywhere then ignites it there).
+   */
   _gazeHit() {
-    const hit = this.app.raycast(this.burnables, false)[0];
+    const gyro = this.app.gyro;
+    const ndc = gyro && !this.painting ? this._tiltNdc(gyro) : this.app.pointer.ndc;
+    const hit = this.app.raycast(this.burnables, false, ndc)[0];
     if (hit) return { point: hit.point, obj: hit.object };
-    const g = this.app.raycast([this.ground], false)[0];
+    const g = this.app.raycast([this.ground], false, ndc)[0];
     return g ? { point: g.point, obj: null } : null;
+  }
+
+  _tiltNdc(gyro) {
+    this._tn = this._tn || new THREE.Vector2();
+    return this._tn.set(THREE.MathUtils.clamp(gyro.x * 0.9, -0.9, 0.9), THREE.MathUtils.clamp(-0.15 - gyro.y * 0.7, -0.85, 0.4));
   }
 
   pointerMove(p) {
@@ -478,7 +489,9 @@ export class Amaterasu extends Chapter {
         this.app.flash(0.15, 0x400010);
       }
     }
-    const showReticle = !this.app.isTouch || this.app.pointer.down;
+    // with the gyroscope the gaze follows the tilt even with no finger down
+    if (this.app.gyro && !this.painting && !this.cine.active) { const gh = this._gazeHit(); if (gh) this.gaze.copy(gh.point); }
+    const showReticle = !this.app.isTouch || this.app.pointer.down || !!this.app.gyro;
     this.reticle.position.x = damp(this.reticle.position.x, this.gaze.x, 14, dt);
     this.reticle.position.z = damp(this.reticle.position.z, this.gaze.z, 14, dt);
     this.reticle.rotation.z -= dt * (1 + hold.progress * 8 + (this.painting ? 6 : 0));

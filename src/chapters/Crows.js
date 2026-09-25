@@ -303,6 +303,7 @@ export class Crows extends Chapter {
     const pw = this.pointerWorld;
     const maxSpeed = this.formation ? 14 : 7;
 
+    const gyro = this.app.gyro;
     this.birds.forEach((b, i) => {
       const acc = tmp.set(0, 0, 0);
       if (b.target) {
@@ -342,6 +343,8 @@ export class Crows extends Chapter {
         // gentle global swirl
         acc.x += -b.p.y * 0.05;
         acc.y += b.p.x * 0.03;
+        // on a phone, tilt is the wind: the flock is blown the way the phone tips
+        if (gyro) { acc.x += gyro.x * 7; acc.y -= gyro.y * 3.5; }
       }
       // pointer interaction
       if (this.pointerActive) {

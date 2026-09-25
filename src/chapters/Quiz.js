@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
 import { SharinganEye } from '../objects/Eye.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -237,8 +237,11 @@ export class Quiz extends Chapter {
   update(dt, t) {
     this.eye.update(dt);
     const pn = this.app.pointer.ndc;
-    this.eye.group.rotation.y = damp(this.eye.group.rotation.y, (this.app.isTouch ? Math.sin(t * 0.5) * 0.3 : pn.x * 0.5) + 0.25, 5, dt);
-    this.eye.group.rotation.x = damp(this.eye.group.rotation.x, this.app.isTouch ? 0 : -pn.y * 0.35, 5, dt);
+    const gyro = this.app.gyro;
+    const gazeX = gyro ? gyro.x * 0.6 : this.app.isTouch ? Math.sin(t * 0.5) * 0.3 : pn.x * 0.5;
+    const gazeY = gyro ? gyro.y * 0.4 : this.app.isTouch ? 0 : -pn.y * 0.35;
+    this.eye.group.rotation.y = damp(this.eye.group.rotation.y, gazeX + 0.25, 5, dt);
+    this.eye.group.rotation.x = damp(this.eye.group.rotation.x, gazeY, 5, dt);
     this.shake = damp(this.shake || 0, 0, 6, dt);
     if (this.eyeBase) this.eye.group.position.x = this.eyeBase.x + Math.sin(t * 60) * this.shake * 0.12;
 

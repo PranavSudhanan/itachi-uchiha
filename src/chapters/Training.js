@@ -574,7 +574,12 @@ export class Training extends Chapter {
         damp(this.camera.position.y, this.camBase.y + sy, 3, dt) + rand(-1, 1) * this.shake * 0.15,
         damp(this.camera.position.z, this.camBase.z, 3, dt),
       );
-      this._look = (this._look || new THREE.Vector3()).set(this.camera.position.x * 0.3, 1.9, -10);
+      // on a phone, tilting turns your head across the clearing
+      const gyro = this.app.gyro;
+      this.gyroLook = this.gyroLook || new THREE.Vector2();
+      this.gyroLook.x = damp(this.gyroLook.x, gyro ? gyro.x * 3.2 : 0, 5, dt);
+      this.gyroLook.y = damp(this.gyroLook.y, gyro ? -gyro.y * 1.4 : 0, 5, dt);
+      this._look = (this._look || new THREE.Vector3()).set(this.camera.position.x * 0.3 + this.gyroLook.x, 1.9 + this.gyroLook.y, -10);
       this.camera.lookAt(this._look);
       this.director.syncLook(this._look);
     }

@@ -458,6 +458,8 @@ export class Precognition extends Chapter {
       // the blade catches the moon now and then as it turns
       it.glint.material.opacity = Math.pow(Math.max(0, Math.sin(it.t * (it.type === 'shuriken' ? 9 : 5) + it.gph)), 6) * 0.9;
       if (it.state === 'fly' && it.m.position.z > this.camera.position.z - 0.8) {
+        // a blade that has flown past a leaning player misses
+        if (this.app.gyro && Math.abs(it.m.position.x - this.camera.position.x) > 1.05) { this._remove(it); this.items.splice(i, 1); continue; }
         this._remove(it);
         this.items.splice(i, 1);
         if (this.state === 'playing') this._hit(it);
@@ -477,13 +479,17 @@ export class Precognition extends Chapter {
     // camera sway + shake
     this.shake = damp(this.shake, 0, 5, dt);
     const pn = this.app.pointer.ndc;
-    const sx = this.app.isTouch ? 0 : pn.x * 0.25;
+    // on a phone, tilting leans you left and right: lean out of a blade's path to dodge it
+    const gyro = this.app.gyro;
+    this.lean = damp(this.lean || 0, gyro ? gyro.x * 0.85 : 0, 8, dt);
+    const sx = this.app.isTouch ? this.lean : pn.x * 0.25;
     this.camera.position.set(
       this.camBase.x + sx + rand(-1, 1) * this.shake * 0.12,
       this.camBase.y + Math.sin(t * 0.8) * 0.03 + rand(-1, 1) * this.shake * 0.12,
       this.camBase.z,
     );
     this.camera.lookAt(sx * 2, 1.9, -10);
+    if (gyro) this.camera.rotateZ(-this.lean * 0.12); // the body tips as it leans
 
     emitFireflies(this.fireflies, dt, { rate: 8, center: new THREE.Vector3(0, 0, -10), spread: 14 });
     this.fireflies.update(sdt, t);

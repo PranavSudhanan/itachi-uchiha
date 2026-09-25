@@ -57,7 +57,8 @@ export class Hero extends Chapter {
     this.moon.position.copy(moonPos);
     this.moon.lookAt(0, 0, 11);
     s.add(this.moon);
-    s.add(konohaSkyline());
+    this.skyline = konohaSkyline();
+    s.add(this.skyline);
 
     // --- the eye ---
     this.eye = new SharinganEye({ radius: 1.75, mode: 3 });
@@ -232,7 +233,12 @@ export class Hero extends Chapter {
 
     // eye looks at pointer (or wanders when idle)
     let tx, ty;
-    if (this.idle > 3 || this.app.isTouch) {
+    const gyro = this.app.gyro;
+    if (gyro && !this.app.pointer.down) {
+      // on a phone the eye follows the tilt: it keeps watching you as the phone turns
+      tx = this.eyeGroup.position.x + gyro.x * 4;
+      ty = this.eyeGroup.position.y - gyro.y * 2.4;
+    } else if (this.idle > 3 || this.app.isTouch) {
       tx = Math.sin(t * 0.4) * 5;
       ty = Math.sin(t * 0.63) * 2.5;
       if (this.app.isTouch && this.app.pointer.down) {
@@ -268,6 +274,12 @@ export class Hero extends Chapter {
     this.camera.position.x = damp(this.camera.position.x, this.app.isTouch ? 0 : pn.x * 0.7, 3, dt);
     this.camera.position.y = damp(this.camera.position.y, this.app.isTouch ? 0 : pn.y * 0.45, 3, dt);
     this.camera.lookAt(this.eyeGroup.position.x * 0.35, this.eyeGroup.position.y * 0.3, 0);
+    // a touch of depth: the village behind shifts a little with the tilt (the eye and camera stay put)
+    const [farL, nearL] = this.skyline.children;
+    const gx = gyro ? gyro.x : 0, gy = gyro ? gyro.y : 0;
+    nearL.position.x = damp(nearL.position.x, -gx * 1.6, 4, dt);
+    farL.position.x = damp(farL.position.x, -gx * 0.8, 4, dt);
+    nearL.position.y = damp(nearL.position.y, -12.5 + gy * 0.6, 4, dt);
 
     // feathers
     const pw = this.pointerWorld;
@@ -282,7 +294,7 @@ export class Hero extends Chapter {
           f.rs.x += rand(-2, 2) * k;
         }
       }
-      f.v.x += (Math.sin(t * 1.2 + f.ph) * 0.6 - f.v.x) * dt * 0.8;
+      f.v.x += (Math.sin(t * 1.2 + f.ph) * 0.6 + (gyro ? gyro.x * 2.2 : 0) - f.v.x) * dt * 0.8; // tilt is a breeze
       f.v.y += (-0.6 - f.v.y) * dt * 0.8;
       f.v.z *= 1 - dt * 0.8;
       f.p.addScaledVector(f.v, dt);

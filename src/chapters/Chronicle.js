@@ -344,6 +344,12 @@ export class Chronicle extends Chapter {
     const focus = this.slabs[this.activeIndex < 0 ? 0 : this.activeIndex].position;
     this.lookAtV = (this.lookAtV || ahead.clone()).lerp(ahead.clone().lerp(focus, 0.6), 1 - Math.exp(-3 * dt));
     this.camera.lookAt(this.lookAtV);
+    // on a phone, tilting turns your head: look along the grove, up at the bamboo, down at the stones
+    const gyro = this.app.gyro;
+    this.gyroYaw = damp(this.gyroYaw || 0, gyro ? -gyro.x * 0.32 : 0, 5, dt);
+    this.gyroPitch = damp(this.gyroPitch || 0, gyro ? -gyro.y * 0.18 : 0, 5, dt);
+    this.camera.rotateY(this.gyroYaw);
+    this.camera.rotateX(this.gyroPitch);
 
     let nearest = 0;
     this.stops.forEach((s, i) => { if (Math.abs(s - this.p) < Math.abs(this.stops[nearest] - this.p)) nearest = i; });

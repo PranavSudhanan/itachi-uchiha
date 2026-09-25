@@ -34,7 +34,7 @@ export class SharinganEye {
         varying vec3 vObj; varying vec3 vN; varying vec3 vView;
         vec2 rot(vec2 p, float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c)*p; }
         void main(){
-          float fres = pow(1.0 - max(dot(vN, vView), 0.0), 2.4);
+          float fres = pow(clamp(1.0 - dot(vN, vView), 0.0, 1.0), 2.4); // clamped: a dot a hair over 1 would make pow() NaN
           vec3 col = mix(vec3(0.045,0.012,0.018), vec3(0.2,0.02,0.035), fres);
           if (vObj.z > 0.0) {
             vec2 p = vObj.xy / uIris;

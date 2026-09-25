@@ -505,8 +505,12 @@ export class Genjutsu extends Chapter {
     // camera
     this.yawTarget += dt * 0.03;
     this.yaw = damp(this.yaw, this.yawTarget, 4, dt);
+    // on a phone, tilting orbits the view a little around the torii and lifts or lowers it
+    const gyro = this.app.gyro;
+    this.gyroYaw = damp(this.gyroYaw || 0, gyro ? gyro.x * 0.45 : 0, 4, dt);
+    this.gyroRise = damp(this.gyroRise || 0, gyro ? gyro.y * 1.2 : 0, 4, dt);
     const r = this.app.width / this.app.height < 0.9 ? 16 : 12;
-    this.camera.position.set(Math.sin(this.yaw) * r, 2.4 + k * 0.8, Math.cos(this.yaw) * r);
+    this.camera.position.set(Math.sin(this.yaw + this.gyroYaw) * r, 2.4 + k * 0.8 + this.gyroRise, Math.cos(this.yaw + this.gyroYaw) * r);
     this.camera.lookAt(0, 3 + k * 1.5, -8);
     this.camera.rotateZ(Math.sin(t * 0.4) * 0.05 * k);
     this.moon.lookAt(this.camera.position);

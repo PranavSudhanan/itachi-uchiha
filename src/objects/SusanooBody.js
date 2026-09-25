@@ -206,7 +206,7 @@ export function spiritMaterial({
       uniform sampler2D uSpiral; uniform float uSpiralAmt; uniform float uSpiralScale; uniform float uMapAmt; uniform float uGain;
       varying vec3 vN; varying vec3 vV; varying vec3 vW; varying vec2 vUv;
       void main(){
-        float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 1.6);
+        float fres = pow(max(1.0 - abs(dot(normalize(vN), normalize(vV))), 0.0), 1.6);
         // flowing contour lines, like the layered outlines of the anime Susanoo
         float f = snoise(vW * vec3(0.32, 0.16, 0.32) + vec3(0.0, -uTime * 0.22, 0.0)) * 1.7 + vW.y * 0.5 + snoise(vW * 1.2) * 0.22;
         float band = abs(fract(f * uLines) - 0.5);
@@ -416,7 +416,7 @@ function flameMaterial({ rim, reveal, power, floor = -9, amount = 1, arms = null
       varying vec3 vN; varying vec3 vV; varying vec3 vW;
       void main(){
         vec3 n = normalize(vN);
-        float fres = pow(1.0 - abs(dot(n, normalize(vV))), 1.3);
+        float fres = pow(max(1.0 - abs(dot(n, normalize(vV))), 0.0), 1.3);
         float f = snoise(vW * vec3(1.4, 0.6, 1.4) + vec3(0.0, -uTime * 2.8, 0.0)) * 0.5 + 0.5;
         float tongues = smoothstep(0.35, 0.85, f);
         ${SCULPT_VIS}

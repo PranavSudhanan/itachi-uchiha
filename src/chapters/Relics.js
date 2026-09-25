@@ -452,8 +452,10 @@ export class Relics extends Chapter {
       const isHover = i === this.hoverIndex;
       it.spin.position.y = it.baseY + Math.sin(t * 1.4 + i) * 0.08 + (isFocus ? 0.35 : 0);
       if (isFocus) {
-        it.spin.rotation.y = damp(it.spin.rotation.y, it.ry + t * 0.15, 8, dt);
-        it.spin.rotation.x = damp(it.spin.rotation.x, it.rx, 8, dt);
+        // on a phone, tilting turns the relic you are holding to show its sides
+        const gyro = this.app.gyro;
+        it.spin.rotation.y = damp(it.spin.rotation.y, it.ry + t * 0.15 + (gyro ? gyro.x * 1.1 : 0), 8, dt);
+        it.spin.rotation.x = damp(it.spin.rotation.x, it.rx + (gyro ? gyro.y * 0.6 : 0), 8, dt);
       } else {
         it.spin.rotation.y += dt * (isHover ? 1.8 : 0.5);
         it.spin.rotation.x = damp(it.spin.rotation.x, 0, 3, dt);
