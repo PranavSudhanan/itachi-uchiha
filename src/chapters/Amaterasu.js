@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyTextureSet } from '../core/Textures.js';
 import { Chapter } from '../core/Chapter.js';
 import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -37,6 +38,10 @@ export class Amaterasu extends Chapter {
     const s = this.scene;
     // a desolate plain under a heavy overcast, the sun a dim patch behind the cloud
     const sunDir = new THREE.Vector3(-0.5, 0.35, -0.8);
+    this.shaftSource = () => (this._sunPos || (this._sunPos = new THREE.Vector3())).copy(this.camera.position).addScaledVector(sunDir.clone().normalize(), 80);
+    this.shaftColor = 0xfff0dc;
+    this.shaftStrength = 0.6;
+    this.shaftThreshold = 0.35;
     this.sky = overcastSky(sunDir);
     s.add(this.sky);
     s.fog = new THREE.Fog(0x4e4843, 16, 58);
@@ -81,6 +86,7 @@ export class Amaterasu extends Chapter {
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.repeat.set(14, 14);
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }));
+    applyTextureSet(this.ground.material, 'mud_cracked_dry_03', { repeat: [26, 26], tint: 0xb0a898, renderer: this.app.renderer });
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.receiveShadow = true;
     s.add(this.ground);

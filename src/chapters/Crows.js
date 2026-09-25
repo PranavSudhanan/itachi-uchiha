@@ -55,6 +55,9 @@ export class Crows extends Chapter {
     s.fog = new THREE.Fog(0x2a0608, 20, 60);
     // a blood-red dusk: clouds lit around a blood moon, ridges fading into the haze, pines and a bare tree
     this.dusk = buildDusk(s);
+    this.shaftSource = () => this.dusk.moon.position;
+    this.shaftColor = 0xff6a48;
+    this.shaftStrength = 0.8;
 
     // the Akatsuki emblem itself, glowing up behind the crows as they settle into its outline; drawn on
     // the same canvas mapping as the formation so the two line up exactly

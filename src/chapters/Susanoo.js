@@ -55,7 +55,13 @@ export class Susanoo extends Chapter {
     s.fog = new THREE.FogExp2(0x0b0c12, 0.02);
     // the ruins of the Uchiha hideout under a thunderstorm
     this.sky = stormSky();
-    s.add(this.sky, mountainRing(), ruins(), wetGround());
+    const wet = wetGround();
+    s.add(this.sky, mountainRing(), ruins(), wet);
+    this.reflective = [wet];
+    this.shaftSource = () => (this._core2 || (this._core2 = new THREE.Vector3())).set(0, this.camLook || 3, -1.5);
+    this.shaftColor = 0xff6a2a;
+    this.shaftStrength = 0;
+    this.shaftThreshold = 0.7;
     // faint cool light from the cloud cover, so the ruins read against the dark
     const fill = new THREE.DirectionalLight(0x7080a8, 0.35);
     fill.position.set(-10, 20, -15);
@@ -851,6 +857,7 @@ export class Susanoo extends Chapter {
     }
     const strength = this.mats[1].uniforms.uReveal.value;
     this.glowStrength = strength;
+    this.shaftStrength = strength * 0.7;
     this.glowLight.intensity = strength * (14 + this.stage * 4) + Math.sin(t * 9) * 2 * strength;
     this.groundMat.opacity = 0.2 + strength * 0.7;
     this.sky.userData.uniforms.uGlow.value.setRGB(0.23, 0.08, 0.06).multiplyScalar(0.3 + strength);

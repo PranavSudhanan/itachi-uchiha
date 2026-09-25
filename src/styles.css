@@ -383,6 +383,8 @@ body.has-cursor, body.has-cursor * { cursor: none !important; }
   .mem-house { bottom: calc(14px + var(--nav-h) + env(safe-area-inset-bottom)); max-height: 42vh; overflow: auto; }
 }
 
+.quality-btn { width: auto; min-width: 40px; padding: 0 10px; font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+
 /* ---------- Loader ---------- */
 #loader {
   position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center;
