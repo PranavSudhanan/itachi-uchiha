@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { shared } from '../core/utils.js';
 
@@ -38,7 +38,11 @@ export function createMirrorWater({ size = 160, resolution = 0.5, color = 0x7f8a
       #include <logdepthbuf_pars_fragment>
       void main(){
         #include <logdepthbuf_fragment>
-        vec2 off = vec2(sin(vWorld.x * 0.8 + uTime * 0.9) + sin(vWorld.z * 1.3 - uTime * 0.7), cos(vWorld.z * 0.9 + uTime * 0.8)) * 0.004;
+        // still water: only a fine shimmer, many small crossing wavelets, so reflections stay straight
+        vec2 off = vec2(
+          sin(vWorld.x * 3.1 + uTime * 1.2) * 0.5 + sin(vWorld.z * 4.7 - uTime * 0.9) * 0.5 + sin((vWorld.x + vWorld.z) * 7.3 + uTime * 1.7) * 0.25,
+          cos(vWorld.z * 3.7 + uTime * 1.1) * 0.5 + cos(vWorld.x * 5.3 - uTime * 1.3) * 0.3 + cos((vWorld.x - vWorld.z) * 8.1 - uTime * 1.5) * 0.2
+        ) * 0.0013;
         float crest = 0.0;
         for (int i = 0; i < ${MAX_RIPPLES}; i++) {
           vec4 r = uRipples[i];

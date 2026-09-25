@@ -164,7 +164,7 @@ export class App {
       if (this.renderer.compileAsync) {
         const p = this.renderer.compileAsync(ch.scene, ch.camera);
         restore(); // programs are already queued; visibility can go back immediately
-        p.catch(() => {});
+        this._compiling = p.catch(() => {});
       } else {
         this.renderer.compile(ch.scene, ch.camera);
         restore();
@@ -238,14 +238,42 @@ export class App {
     requestAnimationFrame(this._tick);
   }
 
-  async goTo(i) {
+  /** The veil between chapters shows where you are going: its number, name and kanji. */
+  _titleCard(ch, i) {
+    if (!this._tc) {
+      this._tc = h('div.t-card', {}, h('span.t-num'), h('b.t-title'), h('span.t-jp'));
+      this.overlay.append(this._tc);
+    }
+    const [num, title, jp] = this._tc.children;
+    num.textContent = `${String(i + 1).padStart(2, '0')} / ${String(this.chapters.length).padStart(2, '0')}`;
+    title.textContent = ch.title;
+    jp.textContent = ch.jp || '';
+  }
+
+  async goTo(i, dir = 0) {
     const n = this.chapters.length;
+    const raw = i;
     i = ((i % n) + n) % n;
     if (i === this.index || this.busy) return;
     this.busy = true;
+    dir = dir || Math.sign(raw - this.index) || 1;
     this.sfx.whoosh();
-    this.overlay.classList.add('show');
-    await wait(this.reducedMotion ? 50 : 580);
+    if (this.isTouch) try { navigator.vibrate?.(8); } catch (_) { /* not allowed */ }
+    this._titleCard(this.chapters[i], i);
+    const ov = this.overlay;
+    // phones: the veil wipes across in the direction of travel (a compositor-only transform, smooth even
+    // while the next chapter builds); larger screens keep the iris opening from the centre
+    const wipe = this.phoneLayout.matches && !this.reducedMotion;
+    ov.classList.toggle('wipe', wipe);
+    if (wipe) {
+      ov.style.transition = 'none';
+      ov.style.transform = `translateX(${dir > 0 ? 100 : -100}%)`;
+      void ov.offsetWidth;
+      ov.style.transition = '';
+      ov.style.transform = '';
+    }
+    ov.classList.add('show');
+    await wait(this.reducedMotion ? 50 : wipe ? 420 : 580);
     const old = this.current;
     old.active = false;
     old.exit();
@@ -255,15 +283,20 @@ export class App {
     this.sfx.charge(0);
     this.trail.length = 0;
     this._activate(i);
+    // hold the veil until the new scene's shaders are ready, so it doesn't stutter as it is revealed
+    if (this._compiling) await Promise.race([this._compiling, wait(1500)]);
+    this._compiling = null;
     await frame();
     await frame();
-    this.overlay.classList.remove('show');
-    await wait(450);
+    if (wipe) ov.style.transform = `translateX(${dir > 0 ? -100 : 100}%)`;
+    ov.classList.remove('show');
+    await wait(wipe ? 420 : 450);
+    if (wipe) { ov.style.transition = 'none'; ov.style.transform = ''; void ov.offsetWidth; ov.style.transition = ''; }
     this.busy = false;
   }
 
-  next() { this.goTo(this.index + 1); }
-  prev() { this.goTo(this.index - 1); }
+  next() { this.goTo(this.index + 1, 1); }
+  prev() { this.goTo(this.index - 1, -1); }
 
   /* ---------------- helpers ---------------- */
 

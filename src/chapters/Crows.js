@@ -52,7 +52,7 @@ export class Crows extends Chapter {
 
   build() {
     const s = this.scene;
-    s.fog = new THREE.Fog(0x3a0610, 20, 60);
+    s.fog = new THREE.Fog(0x2a0608, 20, 60);
     // a blood-red dusk: clouds lit around a blood moon, ridges fading into the haze, pines and a bare tree
     this.dusk = buildDusk(s);
 
@@ -76,7 +76,8 @@ export class Crows extends Chapter {
     this.count = this.app.low ? 160 : 360;
     const geo = createCrowGeometry(0.9);
     addPhases(geo, this.count);
-    this.mat = createCrowMaterial({ flap: 12, amp: 0.55 });
+    // backlit by the dusk: a thin red-orange rim on each bird's edge
+    this.mat = createCrowMaterial({ flap: 12, amp: 0.55, glide: 0.8, rim: 0xff6a3a, rimAmt: 0.6 });
     this.flock = new THREE.InstancedMesh(geo, this.mat, this.count);
     this.flock.frustumCulled = false;
     const c = new THREE.Color();
@@ -88,6 +89,7 @@ export class Crows extends Chapter {
       p: new THREE.Vector3(rand(-BOUNDS.x, BOUNDS.x), rand(-BOUNDS.y, BOUNDS.y), rand(-BOUNDS.z, BOUNDS.z * 0.5)),
       v: new THREE.Vector3(rand(-1, 1), rand(-0.3, 0.3), rand(-1, 1)).setLength(rand(3, 5)),
       target: null,
+      roll: 0,
     }));
     this.dummy = new THREE.Object3D();
 
@@ -366,14 +368,23 @@ export class Crows extends Chapter {
       else if (sp < 2 && !b.target) b.v.multiplyScalar(2 / Math.max(sp, 0.01));
       b.p.addScaledVector(b.v, dt);
 
+      // bank into the turn: the wing on the inside of the curve drops (acc is reused below, so read it now)
+      const vs = b.v.length();
+      if (vs > 0.5) {
+        const lateral = (acc.x * b.v.z - acc.z * b.v.x) / vs * (b.target ? 0.02 : 0.06);
+        b.roll = damp(b.roll, Math.max(-0.9, Math.min(0.9, lateral)), 4, dt);
+      }
       this.dummy.position.copy(b.p);
       const look = b.target && b.v.lengthSq() < 1 ? tmp.set(b.p.x, b.p.y, b.p.z + 1) : tmp.copy(b.p).add(b.v);
       this.dummy.lookAt(look);
+      this.dummy.rotateZ(b.roll);
       this.dummy.updateMatrix();
       this.flock.setMatrixAt(i, this.dummy.matrix);
     });
     this.flock.instanceMatrix.needsUpdate = true;
     this.mat.uniforms.uFlap.value = this.formation ? 16 : 12;
+    // holding a formation takes steady wingbeats; free, they glide between bursts
+    this.mat.uniforms.uGlide.value = damp(this.mat.uniforms.uGlide.value, this.formation ? 0 : 0.8, 2, dt);
 
     if (this.formation) {
       this.formTime += dt;

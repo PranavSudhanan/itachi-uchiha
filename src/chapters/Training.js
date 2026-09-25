@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { CrowBurst } from '../objects/Crow.js';
-import { createGrass, createForest, emitFireflies, barkTexture } from '../objects/Nature.js';
+import { createGrass, createForest, emitFireflies, barkTexture, createBoulder } from '../objects/Nature.js';
 import { nightSky, bloodMoon } from '../objects/Dusk.js';
 import { shurikenGeometry } from '../objects/Weapons.js';
 import { JutsuDirector } from './JutsuDirector.js';
@@ -126,15 +126,20 @@ export class Training extends Chapter {
 
     // ground, wind-swept grass and a pine forest
     const groundTex = drawTexture(512, 512, (x, w) => {
-      x.fillStyle = '#0e130d'; x.fillRect(0, 0, w, w);
-      for (let i = 0; i < 5000; i++) {
-        x.fillStyle = `rgba(${rand(20, 45)},${rand(30, 55)},${rand(20, 35)},${rand(0.2, 0.6)})`;
-        x.fillRect(rand(0, w), rand(0, w), rand(1, 3), rand(1, 3));
+      // short turf: a mat of tiny blades in many greens, darker where it is thin
+      x.fillStyle = '#18230f'; x.fillRect(0, 0, w, w);
+      for (let i = 0; i < 20000; i++) {
+        const g = rand(45, 100);
+        x.strokeStyle = `rgba(${g * 0.55 | 0},${g | 0},${g * 0.45 | 0},${rand(0.25, 0.6)})`;
+        x.lineWidth = rand(0.6, 1.4);
+        const px = rand(0, w), py = rand(0, w);
+        x.beginPath(); x.moveTo(px, py); x.lineTo(px + rand(-2, 2), py - rand(3, 7)); x.stroke();
       }
     });
     groundTex.wrapS = groundTex.wrapT = THREE.RepeatWrapping;
-    groundTex.repeat.set(14, 14);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1 }));
+    groundTex.repeat.set(60, 60);
+    groundTex.anisotropy = this.app.renderer.capabilities.getMaxAnisotropy();
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     s.add(ground);
@@ -156,27 +161,54 @@ export class Training extends Chapter {
     s.add(clearing);
     const bark = new THREE.MeshStandardMaterial({ color: 0xc8a890, map: barkTexture(), roughness: 0.95 });
     const rope = new THREE.MeshStandardMaterial({ color: 0x9c8a66, roughness: 1 });
+    const endGrain = drawTexture(256, 256, (x, w) => {
+      x.fillStyle = '#8a6a48'; x.fillRect(0, 0, w, w);
+      x.translate(w / 2, w / 2);
+      for (let r = 3; r < w / 2; r += rand(3, 7)) { x.strokeStyle = `rgba(80,52,30,${rand(0.3, 0.6)})`; x.lineWidth = rand(1, 2.5); x.beginPath(); x.arc(rand(-2, 2), rand(-2, 2), r, 0, TAU); x.stroke(); }
+      // checks: radial cracks from drying
+      for (let i = 0; i < 5; i++) { const a = rand(0, TAU); x.strokeStyle = 'rgba(30,18,10,0.8)'; x.lineWidth = 2; x.beginPath(); x.moveTo(Math.cos(a) * 20, Math.sin(a) * 20); x.lineTo(Math.cos(a) * w * 0.45, Math.sin(a) * w * 0.45); x.stroke(); }
+      x.strokeStyle = '#2a1a10'; x.lineWidth = 16; x.beginPath(); x.arc(0, 0, w / 2 - 8, 0, TAU); x.stroke();
+    });
+    const capMat2 = new THREE.MeshStandardMaterial({ map: endGrain, roughness: 0.95 });
+    const ropeTex = drawTexture(64, 64, (x, w) => {
+      x.fillStyle = '#7a6a4c'; x.fillRect(0, 0, w, w);
+      for (let i = -w; i < w; i += 8) { x.strokeStyle = 'rgba(40,32,20,0.7)'; x.lineWidth = 2.5; x.beginPath(); x.moveTo(i, 0); x.lineTo(i + w, w); x.stroke(); }
+    });
+    ropeTex.wrapS = ropeTex.wrapT = THREE.RepeatWrapping;
+    ropeTex.repeat.set(24, 1);
+    rope.map = ropeTex; rope.color.set(0xb0a080);
     [[6.6, -4.8], [7.7, -6.2], [8.8, -7.8]].forEach(([x, z], i) => {
       const hgt = 1.5 + i * 0.12;
-      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, hgt, 14), bark);
+      const geo = new THREE.CylinderGeometry(0.26, 0.3, hgt, 18, 6);
+      // not a perfect cylinder: a slight bulge, a lean and lumps in the bark
+      const gp = geo.attributes.position;
+      for (let v = 0; v < gp.count; v++) {
+        const px = gp.getX(v), py = gp.getY(v), pz = gp.getZ(v), a = Math.atan2(pz, px);
+        const k = 1 + Math.sin(a * 3 + i) * 0.04 + Math.sin(py * 5 + a * 2) * 0.025;
+        gp.setX(v, px * k + py * 0.03); gp.setZ(v, pz * k);
+      }
+      geo.computeVertexNormals();
+      const log = new THREE.Mesh(geo, [bark, capMat2, capMat2]);
       log.position.set(x, hgt / 2, z);
       log.rotation.y = rand(0, TAU);
-      const band = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.035, 6, 20), rope);
-      band.rotation.x = Math.PI / 2;
-      band.position.set(x, hgt * 0.62, z);
+      // a coil of rope wound three times round the post
+      const pts = [];
+      for (let k = 0; k <= 120; k++) { const a = (k / 120) * TAU * 3; pts.push(new THREE.Vector3(Math.cos(a) * 0.305, hgt * 0.56 + (k / 120) * 0.16, Math.sin(a) * 0.305)); }
+      const band = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 240, 0.03, 6), rope);
+      band.position.set(x, 0, z);
       log.castShadow = log.receiveShadow = true;
+      band.castShadow = true;
       s.add(log, band);
     });
-    const stoneMat = new THREE.MeshStandardMaterial({ color: 0x55565c, roughness: 0.95, flatShading: true });
-    [[-6.5, -5.5, 0.5], [-7.4, -12, 0.8], [6, -13, 0.6], [-3, -4.5, 0.3], [9.5, -3, 0.45]].forEach(([x, z, r]) => {
-      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), stoneMat);
-      rock.position.set(x, r * 0.35, z);
-      rock.scale.set(rand(1, 1.5), rand(0.55, 0.8), rand(1, 1.3));
-      rock.rotation.set(rand(0, 3), rand(0, 3), 0);
+    [[-6.5, -5.5, 0.5], [-7.4, -12, 0.8], [6, -13, 0.6], [-3, -4.5, 0.3], [9.5, -3, 0.45], [-9.5, -8, 0.6], [4, -16, 0.5]].forEach(([x, z, r]) => {
+      const rock = createBoulder();
+      rock.position.set(x, -r * 0.15, z);
+      rock.scale.set(r * rand(1, 1.4), r * rand(0.8, 1.1), r * rand(1, 1.3));
+      rock.rotation.y = rand(0, TAU);
       rock.castShadow = rock.receiveShadow = true;
       s.add(rock);
     });
-    this.grass = createGrass({ count: this.app.low ? 3500 : 9000, area: 24, center: new THREE.Vector3(0, 0, -8), tip: 0x5f7f3c, base: 0x13200f, avoid: (x, z) => Math.abs(x) < 1.3 && z > -2 });
+    this.grass = createGrass({ count: this.app.low ? 8000 : 24000, area: 24, center: new THREE.Vector3(0, 0, -8), tip: 0x5f7f3c, base: 0x13200f, height: [0.25, 0.7], avoid: (x, z) => (Math.abs(x) < 1.3 && z > -2) || Math.hypot(x / 7, (z + 8.5) / 5.5) < 0.55 });
     s.add(this.grass);
     s.add(createForest({ count: this.app.low ? 30 : 52, rMin: 22, rMax: 40, arc: [-Math.PI * 1.1, Math.PI * 0.1], center: new THREE.Vector3(0, 0, -4), castShadow: false }));
     this.fireflies = new ParticlePool({ count: 150, softness: 2 });

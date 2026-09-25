@@ -3,7 +3,7 @@ import { Chapter } from '../core/Chapter.js';
 import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { SharinganEye } from '../objects/Eye.js';
-import { createGrass, createForest, emitFireflies } from '../objects/Nature.js';
+import { createGrass, createForest, emitFireflies, createBoulder } from '../objects/Nature.js';
 import { kunaiGeometry, shurikenGeometry, tagTexture, steel } from '../objects/Weapons.js';
 import { glowTexture, drawTexture, rand, damp, clamp, h, toScreen, pick, TAU } from '../core/utils.js';
 import { nightSky, bloodMoon } from '../objects/Dusk.js';
@@ -87,7 +87,20 @@ export class Precognition extends Chapter {
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     s.add(ground);
-    s.add(createGrass({ count: this.app.low ? 3000 : 8000, area: 26, center: new THREE.Vector3(0, 0, -10) }));
+    // low, dense undergrowth, its tips catching the moonlight
+    s.add(createGrass({ count: this.app.low ? 5000 : 14000, area: 26, center: new THREE.Vector3(0, 0, -10), base: 0x0e160e, tip: 0x4c6446, height: [0.18, 0.5] }));
+    // mossy boulders half-sunk in the clearing
+    {
+      for (let i = 0; i < 9; i++) {
+        const rock = createBoulder();
+        const side = i % 2 ? 1 : -1;
+        rock.position.set(side * rand(3.5, 11), -0.25, rand(-22, -5));
+        rock.scale.setScalar(rand(0.45, 1.3));
+        rock.rotation.y = rand(0, TAU);
+        rock.castShadow = rock.receiveShadow = !this.app.low;
+        s.add(rock);
+      }
+    }
     s.add(createForest({ count: this.app.low ? 28 : 46, rMin: 16, rMax: 34, arc: [-Math.PI * 0.98, -Math.PI * 0.02], castShadow: !this.app.low }));
     s.add(createForest({ count: 16, rMin: 12, rMax: 22, arc: [Math.PI * 0.1, Math.PI * 0.9], castShadow: false }));
 

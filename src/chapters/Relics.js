@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
-import { drawTexture, drawLeaf, cloudShape, damp, rand, TAU, h, clamp } from '../core/utils.js';
+import { drawTexture, drawLeaf, drawAkatsukiCloud, damp, rand, TAU, h, clamp } from '../core/utils.js';
 import { RELICS } from '../data/content.js';
 
 const R = 4.2;
@@ -32,7 +33,7 @@ export class Relics extends Chapter {
     s.environmentIntensity = 0.45;
 
     s.add(new THREE.HemisphereLight(0x6a5048, 0x0a0605, 1.0));
-    const spot = new THREE.SpotLight(0xfff0e8, 70, 30, 0.5, 0.6, 1.5);
+    const spot = new THREE.SpotLight(0xfff0e8, 48, 30, 0.5, 0.8, 1.5);
     spot.position.set(0, 12, 8);
     spot.target.position.set(0, 0, R);
     spot.castShadow = !this.app.low;
@@ -125,16 +126,29 @@ export class Relics extends Chapter {
       cloud: () => this._cloud(),
     };
 
-    const stoneTex = drawTexture(256, 256, (x, w) => {
-      x.fillStyle = '#4a4648'; x.fillRect(0, 0, w, w);
-      for (let i = 0; i < 2600; i++) { const l = rand(40, 110); x.fillStyle = `rgba(${l},${l},${l + 4},${rand(0.3, 0.7)})`; x.fillRect(rand(0, w), rand(0, w), rand(1, 3), rand(1, 3)); }
+    const stoneTex = drawTexture(512, 512, (x, w) => {
+      // dark granite: a speckle of grains, a few pale veins
+      x.fillStyle = '#3a3638'; x.fillRect(0, 0, w, w);
+      for (let i = 0; i < 16000; i++) { const l = rand(30, 120); x.fillStyle = `rgba(${l},${l * 0.98},${l},${rand(0.3, 0.8)})`; x.fillRect(rand(0, w), rand(0, w), rand(1, 3), rand(1, 3)); }
+      for (let i = 0; i < 5; i++) {
+        let px = rand(0, w), py = rand(0, w);
+        x.strokeStyle = 'rgba(170,165,160,0.18)'; x.lineWidth = rand(0.8, 2);
+        x.beginPath(); x.moveTo(px, py);
+        for (let k = 0; k < 10; k++) { px += rand(-20, 60); py += rand(-30, 30); x.lineTo(px, py); }
+        x.stroke();
+      }
     });
-    const pedMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.55, metalness: 0 });
+    const pedMat = new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneTex, bumpScale: 0.6, roughness: 0.72, metalness: 0 });
+    // the cushion each relic rests above: deep plum silk with a soft sheen
+    const silkMat = new THREE.MeshPhysicalMaterial({ color: 0x2a0f22, roughness: 0.55, sheen: 1, sheenColor: new THREE.Color(0x9a5a80), sheenRoughness: 0.35 });
+    const tasselMat = new THREE.MeshStandardMaterial({ color: 0xb08a4a, roughness: 0.7 });
     const brass = new THREE.MeshStandardMaterial({ color: 0xb08a4a, metalness: 0.9, roughness: 0.35, emissive: 0xff9a40, emissiveIntensity: 0 });
-    const beamTex = drawTexture(4, 256, (x, w, hh) => {
-      const g = x.createLinearGradient(0, 0, 0, hh);
-      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.3, 'rgba(255,255,255,0.55)'); g.addColorStop(1, 'rgba(255,255,255,0.9)');
-      x.fillStyle = g; x.fillRect(0, 0, w, hh);
+    // a shaft of light in dusty air: faint, soft at its edges, fading out toward the source and the floor
+    const beamMat = () => new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      uniforms: { uCol: { value: new THREE.Color(0xffe2c0) }, uAmt: { value: 0.04 } },
+      vertexShader: 'varying vec2 vUv; varying vec3 vN, vV; void main(){ vUv = uv; vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }',
+      fragmentShader: 'uniform vec3 uCol; uniform float uAmt; varying vec2 vUv; varying vec3 vN, vV; void main(){ float edge = pow(clamp(abs(dot(normalize(vN), normalize(vV))), 0.0, 1.0), 2.2); float along = smoothstep(0.0, 0.2, vUv.y) * smoothstep(1.0, 0.55, vUv.y); gl_FragColor = vec4(uCol * edge * along * uAmt, 1.0); }',
     });
     this.items = RELICS.map((r, i) => {
       const a = (i / RELICS.length) * TAU;
@@ -142,18 +156,34 @@ export class Relics extends Chapter {
       holder.position.set(Math.sin(a) * R, 0, Math.cos(a) * R);
       holder.rotation.y = a;
       const ped = new THREE.Group();
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.14, 1.3), pedMat);
-      foot.position.y = 0.07;
-      const col = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.66, 1.0), pedMat);
+      const foot = new THREE.Mesh(new RoundedBoxGeometry(1.3, 0.16, 1.3, 2, 0.03), pedMat);
+      foot.position.y = 0.08;
+      const col = new THREE.Mesh(new RoundedBoxGeometry(0.96, 0.66, 0.96, 2, 0.025), pedMat);
       col.position.y = 0.47;
-      const top = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 1.2), pedMat);
+      const top = new THREE.Mesh(new RoundedBoxGeometry(1.2, 0.1, 1.2, 2, 0.03), pedMat);
       top.position.y = 0.85;
-      ped.add(foot, col, top);
+      // a zabuton-like cushion, plumped in the middle, gold tassels at the corners
+      const cushGeo = new RoundedBoxGeometry(0.9, 0.12, 0.9, 4, 0.05);
+      const cp = cushGeo.attributes.position;
+      for (let v = 0; v < cp.count; v++) {
+        const cx = cp.getX(v) / 0.45, cz = cp.getZ(v) / 0.45;
+        if (cp.getY(v) > 0) cp.setY(v, cp.getY(v) + 0.05 * Math.max(0, 1 - cx * cx) * Math.max(0, 1 - cz * cz));
+      }
+      cushGeo.computeVertexNormals();
+      const cushion = new THREE.Mesh(cushGeo, silkMat);
+      cushion.position.y = 0.96;
+      ped.add(foot, col, top, cushion);
+      for (const [tx, tz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+        const tassel = new THREE.Mesh(new THREE.ConeGeometry(0.025, 0.12, 6), tasselMat);
+        tassel.position.set(tx * 0.44, 0.9, tz * 0.44);
+        ped.add(tassel);
+      }
       // a brass rim round the top slab: it warms when the relic is chosen
-      const ring = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.025, 1.22), brass.clone());
-      ring.position.y = 0.91;
+      // set into the slab's edge so it shows only as a thin gold band
+      const ring = new THREE.Mesh(new THREE.BoxGeometry(1.225, 0.028, 1.225), brass.clone());
+      ring.position.y = 0.86;
       // the shaft of light falling on the relic from above
-      const halo = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.85, 6.5, 32, 1, true), new THREE.MeshBasicMaterial({ map: beamTex, color: 0xffe2c0, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+      const halo = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.85, 6.5, 32, 1, true), beamMat());
       halo.position.y = 0.9 + 3.25;
       const obj = builders[r.key]();
       const spin = new THREE.Group();
@@ -193,22 +223,52 @@ export class Relics extends Chapter {
       for (const [cx, cy] of [[22, 22], [w - 22, 22], [22, hh - 22], [w - 22, hh - 22]]) { x.beginPath(); x.arc(cx, cy, 8, 0, TAU); x.fill(); }
       drawLeaf(x, w / 2, hh / 2, 52, { color: '#2a2d33', width: 11, scratch: true });
     });
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.58, 0.06), [
-      this._metal(), this._metal(), this._metal(), this._metal(),
-      new THREE.MeshStandardMaterial({ map: tex, metalness: 0.7, roughness: 0.42 }), this._metal(),
-    ]);
-    g.add(plate);
-    const cloth = new THREE.MeshStandardMaterial({ color: 0x1a2236, roughness: 0.9, side: THREE.DoubleSide });
-    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.78, 0.78, 0.5, 40, 1, true, Math.PI * 0.22, Math.PI * 1.56), cloth);
-    band.position.z = -0.72;
+    const brushed = drawTexture(256, 64, (x, w, hh) => {
+      x.fillStyle = '#808080'; x.fillRect(0, 0, w, hh);
+      for (let i = 0; i < 700; i++) { const l = rand(90, 170); x.fillStyle = `rgba(${l},${l},${l},0.35)`; x.fillRect(rand(0, w), rand(0, hh), rand(20, 90), 1); }
+    }, false);
+    const plateGeo = new RoundedBoxGeometry(1.5, 0.52, 0.05, 4, 0.02);
+    {
+      // bent to the curve of a forehead
+      const pp = plateGeo.attributes.position;
+      for (let v = 0; v < pp.count; v++) { const px = pp.getX(v); pp.setZ(v, pp.getZ(v) - px * px * 0.16); }
+      plateGeo.computeVertexNormals();
+    }
+    const steel = new THREE.MeshStandardMaterial({ color: 0xa4aab2, metalness: 0.9, roughness: 0.38, roughnessMap: brushed });
+    const plate = new THREE.Mesh(plateGeo, steel);
+    // the engraved face sits just proud of the plate, following its curve
+    const faceGeo = new THREE.PlaneGeometry(1.46, 0.48, 24, 1);
+    {
+      const fp = faceGeo.attributes.position;
+      for (let v = 0; v < fp.count; v++) { const px = fp.getX(v); fp.setZ(v, 0.027 - px * px * 0.16); }
+      faceGeo.computeVertexNormals();
+    }
+    const face = new THREE.Mesh(faceGeo, new THREE.MeshStandardMaterial({ map: tex, metalness: 0.75, roughness: 0.4, roughnessMap: brushed }));
+    g.add(plate, face);
+    // cloth: dark navy, a visible weave
+    const weave = drawTexture(128, 128, (x, w) => {
+      x.fillStyle = '#1e2a44'; x.fillRect(0, 0, w, w);
+      for (let i = 0; i < w; i += 3) { x.fillStyle = 'rgba(0,0,0,0.28)'; x.fillRect(i, 0, 1, w); x.fillStyle = 'rgba(120,140,190,0.07)'; x.fillRect(0, i, w, 1); }
+    });
+    weave.wrapS = weave.wrapT = THREE.RepeatWrapping;
+    weave.repeat.set(6, 1);
+    const cloth = new THREE.MeshPhysicalMaterial({ map: weave, roughness: 0.85, sheen: 0.6, sheenColor: new THREE.Color(0x3a4a70), side: THREE.DoubleSide });
+    // the band runs from the plate's ends round the back of the head, narrower than the plate
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.74, 0.74, 0.4, 48, 1, true, Math.PI * 0.26, Math.PI * 1.48), cloth);
+    band.position.z = -0.62;
     g.add(band);
+    // the knot at the back
+    const knot = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 10), cloth);
+    knot.scale.set(1.3, 0.9, 0.8);
+    knot.position.set(0, -0.02, -1.36);
+    g.add(knot);
     for (const sgn of [-1, 1]) {
       const tailGeo = new THREE.PlaneGeometry(0.22, 1.1, 1, 10);
       const pos = tailGeo.attributes.position;
       for (let i = 0; i < pos.count; i++) pos.setZ(i, Math.sin((pos.getY(i) + 0.55) * 3) * 0.12);
       tailGeo.computeVertexNormals();
       const tail = new THREE.Mesh(tailGeo, cloth);
-      tail.position.set(sgn * 0.12, -0.45, -1.35);
+      tail.position.set(sgn * 0.12, -0.5, -1.38);
       tail.rotation.z = sgn * 0.25;
       g.add(tail);
     }
@@ -218,7 +278,8 @@ export class Relics extends Chapter {
 
   _ring() {
     const g = new THREE.Group();
-    const band = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.09, 24, 80), this._metal(0xcfa55a, 0.25));
+    const gold = this._metal(0xb8914a, 0.34);
+    const band = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.075, 24, 80), gold);
     g.add(band);
     const faceTex = drawTexture(256, 256, (x, w) => {
       const gr = x.createRadialGradient(w / 2, w / 2, 10, w / 2, w / 2, w / 2);
@@ -229,9 +290,9 @@ export class Relics extends Chapter {
       x.fillText('朱', w / 2, w / 2 + 8);
     });
     const face = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.28, 0.12, 40), [
-      this._metal(0xcfa55a, 0.25),
-      new THREE.MeshStandardMaterial({ map: faceTex, roughness: 0.25, metalness: 0.2, emissive: 0x400008 }),
-      this._metal(0xcfa55a, 0.25),
+      gold,
+      new THREE.MeshPhysicalMaterial({ map: faceTex, roughness: 0.2, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.15 }),
+      gold,
     ]);
     face.position.y = 0.5;
     face.rotation.y = -Math.PI / 2;
@@ -284,7 +345,14 @@ export class Relics extends Chapter {
     const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1.6, 8), new THREE.MeshStandardMaterial({ color: 0xc8a574, roughness: 0.9 }));
     g.add(stick);
     [0xf4a7b9, 0xf6f1e7, 0x8fbf6a].forEach((c, i) => {
-      const b = new THREE.Mesh(new THREE.SphereGeometry(0.22, 32, 24), new THREE.MeshStandardMaterial({ color: c, roughness: 0.55, metalness: 0 }));
+      const geo = new THREE.SphereGeometry(0.22, 32, 24);
+      const gp = geo.attributes.position;
+      for (let v = 0; v < gp.count; v++) {
+        const k = 1 + Math.sin(gp.getX(v) * 23 + i) * Math.sin(gp.getZ(v) * 19) * 0.012;
+        gp.setXYZ(v, gp.getX(v) * k, gp.getY(v) * k, gp.getZ(v) * k);
+      }
+      geo.computeVertexNormals();
+      const b = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ color: c, roughness: 0.7, metalness: 0, sheen: 0.25, sheenColor: new THREE.Color(0xf0e8e0), sheenRoughness: 0.7 }));
       b.position.y = 0.45 - i * 0.4;
       b.scale.y = 0.92;
       g.add(b);
@@ -295,15 +363,30 @@ export class Relics extends Chapter {
 
   _cloud() {
     const g = new THREE.Group();
-    const opts = { depth: 0.14, bevelEnabled: true, bevelThickness: 0.04, bevelSize: 0.04, bevelSegments: 3, curveSegments: 24 };
-    const red = new THREE.Mesh(new THREE.ExtrudeGeometry(cloudShape(0.62), opts), new THREE.MeshStandardMaterial({ color: 0xc1121f, roughness: 0.5, emissive: 0x3a0005 }));
-    const white = new THREE.Mesh(new THREE.ExtrudeGeometry(cloudShape(0.72), { ...opts, depth: 0.08 }), new THREE.MeshStandardMaterial({ color: 0xf3efe8, roughness: 0.6 }));
-    red.geometry.center(); white.geometry.center();
-    white.position.z = -0.06;
-    // red on both faces, with the white border between them, so it reads from behind too
-    const back = red.clone();
-    back.position.z = -0.12;
-    g.add(white, red, back);
+    const tex = drawTexture(512, 512, (x, w) => {
+      // heavy black cloth with a fine twill
+      x.fillStyle = '#121016'; x.fillRect(0, 0, w, w);
+      for (let i = -w; i < w; i += 4) { x.strokeStyle = 'rgba(60,56,70,0.18)'; x.lineWidth = 1.2; x.beginPath(); x.moveTo(i, 0); x.lineTo(i + w, w); x.stroke(); }
+      for (let i = 0; i < 3000; i++) { const l = rand(0, 40); x.fillStyle = `rgba(${l},${l},${l + 6},0.25)`; x.fillRect(rand(0, w), rand(0, w), 1, 1); }
+      drawAkatsukiCloud(x, w / 2, w / 2, w * 0.36);
+      // the print has worn a little with the cloth
+      for (let i = 0; i < 1400; i++) { x.fillStyle = 'rgba(18,16,22,0.2)'; x.fillRect(rand(w * 0.1, w * 0.9), rand(w * 0.25, w * 0.75), rand(1, 3), 1); }
+    });
+    // a square of cloth, draped in soft folds
+    const geo = new THREE.PlaneGeometry(1.5, 1.5, 40, 40);
+    const pp = geo.attributes.position;
+    for (let v = 0; v < pp.count; v++) {
+      const px = pp.getX(v), py = pp.getY(v);
+      const fold = Math.sin(px * 5.2 + py * 1.2) * 0.085 + Math.sin(py * 3.4 - px * 0.8) * 0.05 + Math.sin(px * 11 - py * 2) * 0.015;
+      const ex = Math.max(0, Math.abs(px) - 0.4), ey = Math.max(0, Math.abs(py) - 0.45);
+      const droop = -(ex * ex * 0.5 + ey * ey * 0.3);
+      pp.setZ(v, fold + droop);
+    }
+    geo.computeVertexNormals();
+    const front = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ map: tex, roughness: 0.82, sheen: 0.5, sheenColor: new THREE.Color(0x40384a), side: THREE.FrontSide }));
+    const lining = new THREE.Mesh(geo, new THREE.MeshPhysicalMaterial({ color: 0x6a0c14, roughness: 0.5, sheen: 0.8, sheenColor: new THREE.Color(0xc03040), side: THREE.BackSide }));
+    g.add(front, lining);
+    g.scale.setScalar(0.85);
     return g;
   }
 
@@ -462,7 +545,8 @@ export class Relics extends Chapter {
       }
       const s = isFocus ? 1.45 : isHover ? 1.4 : 1.25;
       it.spin.scale.setScalar(damp(it.spin.scale.x, s, 8, dt));
-      it.halo.material.opacity = damp(it.halo.material.opacity, isFocus ? 0.09 : isHover ? 0.06 : 0.028, 6, dt);
+      const beam = it.halo.material.uniforms.uAmt;
+      beam.value = damp(beam.value, isFocus ? 0.075 : isHover ? 0.055 : 0.035, 6, dt);
       it.ring.material.emissiveIntensity = damp(it.ring.material.emissiveIntensity, isFocus ? 0.5 : isHover ? 0.3 : 0, 6, dt);
       // dust turning in the chosen relic's light
       if (isFocus && Math.random() < dt * 30) {

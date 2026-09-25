@@ -358,6 +358,18 @@ body.has-cursor, body.has-cursor * { cursor: none !important; }
 .t-eye .eye-tomoe { animation-duration: .9s; }
 #transition.show .t-eye { transform: none; }
 #transition.show .t-eye { opacity: 1; transition-delay: .2s; }
+#transition { grid-template-rows: auto auto; align-content: center; gap: 18px; }
+/* the destination's title card under the eye */
+.t-card { display: grid; justify-items: center; gap: 4px; opacity: 0; transform: translateY(10px); transition: opacity .3s, transform .45s cubic-bezier(.2, .9, .3, 1); }
+#transition.show .t-card { opacity: 1; transform: none; transition-delay: .18s; }
+.t-num { font-family: var(--serif); font-size: 11px; letter-spacing: .3em; color: var(--crimson-2); }
+.t-title { font-family: var(--serif); font-size: clamp(26px, 6vw, 40px); letter-spacing: .08em; color: var(--bone); font-weight: 700; }
+.t-jp { font-size: 14px; letter-spacing: .4em; color: rgba(236, 226, 214, .55); }
+/* phones: a wipe across in the direction of travel instead of the iris */
+#transition.wipe { clip-path: none; transform: translateX(100%); transition: transform .42s cubic-bezier(.7, 0, .3, 1); will-change: transform;
+  background: linear-gradient(90deg, #050103, #1a0208 50%, #050103); }
+#transition.wipe.show { transform: none; }
+#transition.wipe .t-eye { width: 72px; height: 72px; }
 
 /* ---------- Toast / blood / cursor ---------- */
 #toast {
@@ -428,7 +440,13 @@ body.has-cursor #cursor { display: block; }
   .nav-item .nav-label { opacity: 1; transform: none; font-size: 10px; letter-spacing: .14em; }
   .nav-item.active { background: var(--crimson); border-color: var(--crimson); }
   .nav-item.active .nav-num { color: #fff; }
-  .pager { display: none; }
+  /* previous / next arrows at either end of the chapter bar, so you can step through without scrolling it */
+  #nav { padding-left: 50px; padding-right: 50px; scroll-padding-inline: 50px; }
+  .pager {
+    display: flex; left: 0; right: 0; bottom: env(safe-area-inset-bottom); height: var(--nav-h); z-index: 26;
+    justify-content: space-between; align-items: center; padding: 0 8px; pointer-events: none;
+  }
+  .pager .icon-btn { pointer-events: auto; width: 36px; height: 36px; min-height: 36px; background: rgba(12, 5, 12, .96); box-shadow: 0 0 12px 8px rgba(7, 3, 10, .9); }
 
   .intro { top: 70px; max-width: none; right: var(--gutter); }
   .intro .jp-bg { font-size: 64px; top: -16px; }

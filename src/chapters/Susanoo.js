@@ -389,7 +389,11 @@ export class Susanoo extends Chapter {
     this.rainAttr = new THREE.BufferAttribute(this.rainPos, 3).setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('position', this.rainAttr);
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
-    this.rain = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: 0xa8b4d0, transparent: true, opacity: 0.28, depthWrite: false }));
+    // each drop coloured on its own: cold grey-blue, warming to orange as it falls through the Susanoo's glow
+    this.rainCol = new Float32Array(n * 6).fill(1);
+    this.rainColAttr = new THREE.BufferAttribute(this.rainCol, 3).setUsage(THREE.DynamicDrawUsage);
+    g.setAttribute('color', this.rainColAttr);
+    this.rain = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.32, depthWrite: false }));
     this.rain.frustumCulled = false;
     this.scene.add(this.rain);
     this.splash = new ParticlePool({ count: 400, gravity: -9, drag: 0.5 });
@@ -397,6 +401,36 @@ export class Susanoo extends Chapter {
     this.splashColor = new THREE.Color(0x8090b0);
     this.bolt = new Bolt();
     this.scene.add(this.bolt.group);
+
+    // the Susanoo on wet rock: light pooling on the ground round it, and its reflection stretched toward you
+    const pool = drawTexture(256, 256, (x, w) => {
+      const gr = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.4, 'rgba(255,255,255,0.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = gr; x.fillRect(0, 0, w, w);
+    });
+    this.wetGlow = new THREE.Mesh(new THREE.PlaneGeometry(18, 18), new THREE.MeshBasicMaterial({ map: pool, color: 0xff6a2a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.wetGlow.rotation.x = -Math.PI / 2;
+    this.wetGlow.position.y = 0.04;
+    const streak = drawTexture(64, 256, (x, w, hh) => {
+      const gv = x.createLinearGradient(0, 0, 0, hh);
+      gv.addColorStop(0, 'rgba(255,255,255,0.95)'); gv.addColorStop(0.35, 'rgba(255,255,255,0.4)'); gv.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = gv; x.fillRect(0, 0, w, hh);
+      // broken up by the rain-pocked surface
+      for (let i = 0; i < 260; i++) { x.fillStyle = 'rgba(0,0,0,0.45)'; x.fillRect(Math.random() * w, Math.random() * hh, 1 + Math.random() * 3, 1 + Math.random() * 2); }
+      const gh = x.createLinearGradient(0, 0, w, 0);
+      gh.addColorStop(0, 'rgba(0,0,0,1)'); gh.addColorStop(0.5, 'rgba(0,0,0,0)'); gh.addColorStop(1, 'rgba(0,0,0,1)');
+      x.globalCompositeOperation = 'destination-out'; x.fillStyle = gh; x.fillRect(0, 0, w, hh);
+    });
+    const sg = new THREE.PlaneGeometry(1, 1);
+    sg.translate(0, -0.5, 0); // from the base outward
+    this.wetStreak = new THREE.Mesh(sg, new THREE.MeshBasicMaterial({ map: streak, color: 0xff7a3a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.wetStreak.rotation.order = 'YXZ';
+    this.wetStreak.position.y = 0.05;
+    this.scene.add(this.wetGlow, this.wetStreak);
+    // steam where the rain hits chakra fire
+    this.steam = new ParticlePool({ count: this.app.low ? 250 : 500, blending: THREE.NormalBlending, buoyancy: 1.1, drag: 1.2, turbulence: 0.9, softness: 2.2 });
+    this.scene.add(this.steam.points);
+    this.steamCols = [new THREE.Color(0x8c7c72), new THREE.Color(0xa0705a), new THREE.Color(0x6e6660)];
   }
 
   _resetDrop(i, initial = false) {
@@ -407,7 +441,8 @@ export class Susanoo extends Chapter {
   }
 
   _updateStorm(dt) {
-    const P = this.rainPos;
+    const P = this.rainPos, C = this.rainCol;
+    const glow = this.glowStrength || 0;
     for (let i = 0; i < this.rainN; i++) {
       const dy = this.rainSpeed[i] * dt;
       P[i * 6 + 1] -= dy; P[i * 6 + 4] -= dy;
@@ -418,6 +453,34 @@ export class Susanoo extends Chapter {
       }
     }
     this.rainAttr.needsUpdate = true;
+    // drops near the Susanoo catch its orange light
+    if (glow > 0.01 || this._rainWarm) {
+      this._rainWarm = glow > 0.01;
+      for (let i = 0; i < this.rainN; i++) {
+        const x = P[i * 6], z = P[i * 6 + 2];
+        const k = Math.max(0, 1 - Math.hypot(x, z + 1.5) / 9) * glow;
+        const r = 0.66 + k * 0.6, gg = 0.7 - k * 0.1, b = 0.82 - k * 0.5;
+        C[i * 6] = C[i * 6 + 3] = r; C[i * 6 + 1] = C[i * 6 + 4] = gg; C[i * 6 + 2] = C[i * 6 + 5] = b;
+      }
+      this.rainColAttr.needsUpdate = true;
+    }
+    // light pooled on the wet rock, and the reflection streak pointing at the viewer
+    const flick = 0.9 + Math.sin(performance.now() * 0.009) * 0.06;
+    this.wetGlow.material.opacity = glow * 0.45 * flick;
+    this.wetGlow.scale.setScalar(0.7 + this.stage * 0.18);
+    const cx = this.camera.position.x, cz = this.camera.position.z + 1.5;
+    const len = 6 + this.stage * 2.2;
+    this.wetStreak.rotation.set(-Math.PI / 2, Math.atan2(cx, cz), 0, 'YXZ');
+    this.wetStreak.scale.set(2 + this.stage * 0.6, len, 1);
+    this.wetStreak.position.set(0, 0.05, -1.5);
+    this.wetStreak.material.opacity = glow * 0.5 * flick;
+    // steam hissing off the chakra where the rain lands
+    if (glow > 0.05 && Math.random() < dt * 26 * glow) {
+      const a = Math.random() * Math.PI * 2, r = 1 + Math.random() * (1.2 + this.stage * 0.5);
+      const top = Math.max(1.5, (this.camLook || 2) * 1.8);
+      this.steam.emit({ x: Math.cos(a) * r, y: Math.random() * top, z: -1.5 + Math.sin(a) * r, vx: Math.cos(a) * 0.2, vy: 0.4 + Math.random() * 0.6, vz: Math.sin(a) * 0.2, life: 2 + Math.random() * 2, size: 0.6 + Math.random() * 1.1, color: this.steamCols[Math.floor(Math.random() * 3)], grow: 1.5, alpha: 0.22 });
+    }
+    this.steam.update(dt, performance.now() / 1000);
 
     // lightning
     this.nextBolt -= dt;
@@ -708,12 +771,30 @@ export class Susanoo extends Chapter {
   }
   /* ---------- input ---------- */
 
+  pointerDown() {
+    this._dragYaw = 0;
+    this._dragPitch = 0;
+  }
+
   pointerMove(p) {
-    if (p.down && !this.game.on) {
-      this.yawT -= p.dx * 0.006;
-      this.pitchT = clamp(this.pitchT + p.dy * 0.004, -0.05, 0.8);
-      this.idle = 0;
-    }
+    if (!p.down || this.game.on) return;
+    this.idle = 0;
+    // on a phone a stroke across the manifested Susanoo is a sword slash, so it doesn't swing the view
+    // round; before that, a sideways drag walks you round it (only sideways: vertical strokes raise it)
+    if (this.app.isTouch && this.stage >= 4) return;
+    const dy = this.app.isTouch ? 0 : p.dy * 0.004;
+    const pitch = clamp(this.pitchT + dy, -0.05, 0.8);
+    this._dragPitch = (this._dragPitch || 0) + (pitch - this.pitchT);
+    this.pitchT = pitch;
+    this.yawT -= p.dx * 0.006;
+    this._dragYaw = (this._dragYaw || 0) - p.dx * 0.006;
+  }
+
+  /** Takes back whatever orbit the current gesture caused (its swipe meant something else). */
+  _undoDrag() {
+    this.yawT -= this._dragYaw || 0;
+    this.pitchT = clamp(this.pitchT - (this._dragPitch || 0), -0.05, 0.8);
+    this._dragYaw = this._dragPitch = 0;
   }
 
   /** Centre of whatever protects Itachi right now (the Perfect Susanoo stands taller). */
@@ -727,8 +808,7 @@ export class Susanoo extends Chapter {
     const vertical = Math.abs(s.dy) > Math.abs(s.dx) * 1.6;
     if (vertical && !this.game.on) {
       // undo the orbit the swipe caused, then change stage
-      this.yawT += s.dx * 0.006;
-      this.pitchT = clamp(this.pitchT - s.dy * 0.004, -0.05, 0.8);
+      this._undoDrag();
       if (s.dy < 0 && this.stage < 4) this.setStage(this.stage + 1);
       else if (s.dy > 0 && this.stage > 0) this.setStage(this.stage - 1);
       return true;
@@ -737,7 +817,7 @@ export class Susanoo extends Chapter {
       if (!this.game.on) this.app.toast(`Swipe <b>up</b> to manifest the ${this.stages[4][0]} Susanoo, then slash.`, 2200);
       return false;
     }
-    if (!this.game.on) { this.yawT += s.dx * 0.006; this.pitchT = clamp(this.pitchT - s.dy * 0.004, -0.05, 0.8); }
+    if (!this.game.on) this._undoDrag();
     this.slash(true);
     this._slashPath(s.path);
     return true;
@@ -769,6 +849,7 @@ export class Susanoo extends Chapter {
       }
     }
     const strength = this.mats[1].uniforms.uReveal.value;
+    this.glowStrength = strength;
     this.glowLight.intensity = strength * (14 + this.stage * 4) + Math.sin(t * 9) * 2 * strength;
     this.groundMat.opacity = 0.2 + strength * 0.7;
     this.sky.userData.uniforms.uGlow.value.setRGB(0.23, 0.08, 0.06).multiplyScalar(0.3 + strength);
@@ -845,10 +926,16 @@ export class Susanoo extends Chapter {
     // orbit camera
     this.idle += dt;
     if (this.idle > 2.5 && !this.game.on) this.yawT += dt * 0.12;
-    // on a phone, tilting leans the view around the Susanoo and up toward its head
+    // on a phone, tilting lets you peer a little round the Susanoo and up at it, like shifting where you
+    // stand before a giant; its eyes follow you. A dead zone ignores the tremor of a hand-held phone, and
+    // tilt pauses while a finger is down, in the dodge game and in the cinematics
     const gyro = this.app.gyro;
-    this.yaw = damp(this.yaw, this.yawT + (gyro ? gyro.x * 0.5 : 0), 5, dt);
-    this.pitch = damp(this.pitch, this.pitchT + (gyro ? -gyro.y * 0.18 : 0), 5, dt);
+    const calm = gyro && !this.app.pointer.down && !this.game.on && !this.cine.active;
+    const dz = (v) => Math.sign(v) * Math.max(0, Math.abs(v) - 0.12) / 0.88;
+    this.tiltX = damp(this.tiltX || 0, calm ? dz(gyro.x) : 0, 1.6, dt);
+    this.tiltY = damp(this.tiltY || 0, calm ? dz(gyro.y) : 0, 1.6, dt);
+    this.yaw = damp(this.yaw, this.yawT + this.tiltX * 0.18, 5, dt);
+    this.pitch = damp(this.pitch, this.pitchT - this.tiltY * 0.07, 5, dt);
     const portrait = this.app.width / this.app.height < 0.9;
     const tall = this.stage >= 4 && this.body.perfect ? 1 : 0;
     const dist = (this.game.on ? (portrait ? 34 : 25) : (portrait ? 27 : 19) - (this.stage === 0 ? (portrait ? 12 : 9) : 0)) + tall * (portrait ? 8 : 5);

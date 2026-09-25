@@ -123,9 +123,14 @@ export class Genjutsu extends Chapter {
     // moon that becomes a Mangekyō
     const moonTex = drawTexture(512, 512, (x, w) => {
       const g = x.createRadialGradient(w * 0.45, w * 0.42, 0, w / 2, w / 2, w / 2);
-      g.addColorStop(0, '#ffffff'); g.addColorStop(0.8, '#e6e9f2'); g.addColorStop(1, '#bfc6d8');
+      g.addColorStop(0, '#e8e8ec'); g.addColorStop(0.75, '#c8cad2'); g.addColorStop(1, '#8e92a0');
       x.fillStyle = g; x.beginPath(); x.arc(w / 2, w / 2, w / 2 - 2, 0, TAU); x.fill();
-      for (let i = 0; i < 40; i++) { x.fillStyle = `rgba(120,130,160,${rand(0.05, 0.18)})`; x.beginPath(); x.arc(rand(60, w - 60), rand(60, w - 60), rand(8, 44), 0, TAU); x.fill(); }
+      x.save(); x.beginPath(); x.arc(w / 2, w / 2, w / 2 - 2, 0, TAU); x.clip();
+      // maria, craters with lit rims, and a darkened limb
+      for (let i = 0; i < 9; i++) { const cx = rand(90, w - 90), cy = rand(90, w - 90), r = rand(40, 110); const mg = x.createRadialGradient(cx, cy, 0, cx, cy, r); mg.addColorStop(0, 'rgba(90,95,112,0.4)'); mg.addColorStop(1, 'rgba(90,95,112,0)'); x.fillStyle = mg; x.fillRect(0, 0, w, w); }
+      for (let i = 0; i < 70; i++) { const cx = rand(30, w - 30), cy = rand(30, w - 30), r = rand(3, 18); x.fillStyle = 'rgba(80,84,100,0.14)'; x.beginPath(); x.arc(cx, cy, r, 0, TAU); x.fill(); x.strokeStyle = 'rgba(255,255,255,0.1)'; x.lineWidth = r * 0.25; x.beginPath(); x.arc(cx - r * 0.1, cy - r * 0.1, r, Math.PI * 0.9, Math.PI * 1.9); x.stroke(); }
+      const lg = x.createRadialGradient(w / 2, w / 2, w * 0.3, w / 2, w / 2, w / 2); lg.addColorStop(0, 'rgba(20,24,40,0)'); lg.addColorStop(1, 'rgba(20,24,40,0.5)'); x.fillStyle = lg; x.fillRect(0, 0, w, w);
+      x.restore();
     });
     this.moonUniforms = { uA: { value: moonTex }, uB: { value: sharinganTexture('mangekyo') }, uK: { value: 0 }, uRot: { value: 0 } };
     const moon = new THREE.Mesh(new THREE.PlaneGeometry(26, 26), new THREE.ShaderMaterial({
@@ -138,7 +143,7 @@ export class Genjutsu extends Chapter {
           vec2 q = mat2(c,-s,s,c) * p + 0.5;
           vec4 a = texture2D(uA, vUv); vec4 b = texture2D(uB, q);
           float wipe = smoothstep(uK * 1.2 - 0.2, uK * 1.2, length(p) * 2.0);
-          vec4 col = mix(b * vec4(1.6, 1.2, 1.2, 1.0), a * vec4(0.8, 0.82, 0.88, 1.0), wipe);
+          vec4 col = mix(b * vec4(1.6, 1.2, 1.2, 1.0), a * vec4(0.58, 0.6, 0.66, 1.0), wipe); // dim enough to keep its craters under the bloom
           gl_FragColor = col;
           #include <colorspace_fragment>
         }`,
@@ -173,7 +178,13 @@ export class Genjutsu extends Chapter {
       foot.position.set(sx, 0.25, 0);
       torii.add(pillar, foot);
     }
-    const kasagi = new THREE.Mesh(new THREE.BoxGeometry(6.4, 0.35, 0.5), blackWood);
+    const kasagiGeo = new THREE.BoxGeometry(6.8, 0.36, 0.5, 32, 1, 1);
+    {
+      const kp = kasagiGeo.attributes.position;
+      for (let i = 0; i < kp.count; i++) { const u = kp.getX(i) / 3.4; kp.setY(i, kp.getY(i) + u * u * u * u * 0.42); }
+      kasagiGeo.computeVertexNormals();
+    }
+    const kasagi = new THREE.Mesh(kasagiGeo, blackWood);
     kasagi.position.y = 6.15;
     const shimaki = new THREE.Mesh(new THREE.BoxGeometry(5.9, 0.3, 0.42), this.lacquer);
     shimaki.position.y = 5.8;
@@ -206,7 +217,13 @@ export class Genjutsu extends Chapter {
     }
 
     // floating obelisks
-    this.pillarMat = new THREE.MeshStandardMaterial({ color: NORMAL.pillar, roughness: 0.6, metalness: 0.2 });
+    const monoTex = drawTexture(128, 256, (x, w, hh) => {
+      x.fillStyle = '#9a9aa4'; x.fillRect(0, 0, w, hh);
+      for (let i = 0; i < 1600; i++) { const l = rand(90, 190); x.fillStyle = `rgba(${l},${l},${l + 6},0.35)`; x.fillRect(rand(0, w), rand(0, hh), rand(1, 3), rand(1, 4)); }
+      x.strokeStyle = 'rgba(40,40,50,0.6)';
+      for (let i = 0; i < 8; i++) { let px = rand(0, w), py = rand(0, hh); x.lineWidth = rand(0.6, 1.6); x.beginPath(); x.moveTo(px, py); for (let k = 0; k < 5; k++) { px += rand(-12, 12); py += rand(8, 26); x.lineTo(px, py); } x.stroke(); }
+    });
+    this.pillarMat = new THREE.MeshStandardMaterial({ color: NORMAL.pillar, map: monoTex, roughness: 0.9, metalness: 0, flatShading: true });
     this.world = new THREE.Group();
     s.add(this.world);
     this.pillars = [];
@@ -217,7 +234,16 @@ export class Genjutsu extends Chapter {
       if (Math.hypot(px, pz) < 22 || (Math.abs(px) < 10 && pz < -4)) continue;
       i++;
       const hgt = rand(2, 9);
-      const m = new THREE.Mesh(new THREE.BoxGeometry(rand(0.4, 1.2), hgt, rand(0.4, 1.2)), this.pillarMat);
+      // a standing stone: chipped top, a slight taper
+      const geo = new THREE.BoxGeometry(rand(0.5, 1.3), hgt, rand(0.5, 1.3), 1, 4, 1);
+      const gp = geo.attributes.position;
+      for (let v = 0; v < gp.count; v++) {
+        const y = gp.getY(v) / hgt + 0.5;
+        gp.setX(v, gp.getX(v) * (1 - y * 0.18)); gp.setZ(v, gp.getZ(v) * (1 - y * 0.18));
+        if (y > 0.99) gp.setY(v, gp.getY(v) - rand(0, hgt * 0.18));
+      }
+      geo.computeVertexNormals();
+      const m = new THREE.Mesh(geo, this.pillarMat);
       m.position.set(px, hgt / 2 + rand(-1, 3), pz);
       m.rotation.set(rand(-0.15, 0.15), rand(0, TAU), rand(-0.15, 0.15));
       m.userData = { base: m.position.y, ph: rand(0, TAU) };

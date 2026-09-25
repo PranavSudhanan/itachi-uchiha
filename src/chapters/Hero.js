@@ -51,9 +51,10 @@ export class Hero extends Chapter {
 
     // --- Konoha by night under a blood-red moon ---
     const moonPos = new THREE.Vector3(24, 22, -85);
-    this.sky = duskSky(moonPos, 90, { dim: 0.32 }); // night, not dusk: the red only glows around the moon
+    // night, not dusk: nearly black overhead, a faint red low in the sky, the glow gathered round the moon
+    this.sky = duskSky(moonPos, 90, { dim: 0.38, horizon: [0.17, 0.03, 0.032], mid: [0.045, 0.008, 0.016], top: [0.008, 0.002, 0.01], cloudDark: [0.02, 0.005, 0.01] });
     s.add(this.sky);
-    this.moon = bloodMoon(8);
+    this.moon = bloodMoon(6.5, { eclipse: true });
     this.moon.position.copy(moonPos);
     this.moon.lookAt(0, 0, 11);
     s.add(this.moon);
@@ -88,7 +89,8 @@ export class Hero extends Chapter {
     // --- falling crow feathers ---
     const count = this.app.low ? 70 : 150;
     const fGeo = new THREE.PlaneGeometry(0.32, 0.64);
-    const fMat = new THREE.MeshBasicMaterial({ map: featherTexture(), transparent: true, side: THREE.DoubleSide, depthWrite: false, alphaTest: 0.05 });
+    // glossy black crow feathers, catching the red light as they turn
+    const fMat = new THREE.MeshStandardMaterial({ map: featherTexture(), color: 0x3a3440, roughness: 0.45, metalness: 0.2, transparent: true, side: THREE.DoubleSide, depthWrite: false, alphaTest: 0.05 });
     this.feathers = new THREE.InstancedMesh(fGeo, fMat, count);
     this.feathers.frustumCulled = false;
     this.fData = Array.from({ length: count }, () => this._newFeather(true));

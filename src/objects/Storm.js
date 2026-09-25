@@ -62,11 +62,81 @@ export function stormSky(radius = 70) {
   return mesh;
 }
 
+/** A heavy overcast by day: banks of grey cloud, the sun a dim bright patch behind them, haze at the horizon. */
+export function overcastSky(sunDir, radius = 90) {
+  const uniforms = { uTime: { value: 0 }, uSun: { value: sunDir.clone().normalize() } };
+  const mat = new THREE.ShaderMaterial({
+    uniforms, side: THREE.BackSide, depthWrite: false, fog: false,
+    vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: /* glsl */ `
+      uniform float uTime; uniform vec3 uSun; varying vec3 vD;
+      ${NOISE2}
+      void main(){
+        vec3 d = normalize(vD);
+        float h = max(d.y, 0.0);
+        vec2 uv = d.xz / (h + 0.25) * 0.7;
+        vec2 flow = vec2(uTime * 0.01, uTime * 0.004);
+        float n = fbm(uv + flow + fbm(uv * 0.6 - flow) * 0.9);
+        float n2 = fbm(uv * 2.4 - flow * 1.5);
+        // grey banks: lighter tops, darker bellies
+        vec3 col = mix(vec3(0.13, 0.125, 0.125), vec3(0.32, 0.305, 0.3), smoothstep(0.3, 0.85, n) * 0.8 + n2 * 0.25);
+        float sun = max(dot(d, uSun), 0.0);
+        col += vec3(0.55, 0.48, 0.4) * pow(sun, 10.0) * (0.4 + (1.0 - n) * 0.8) + vec3(0.14, 0.12, 0.1) * pow(sun, 3.0);
+        // dust haze toward the horizon
+        col = mix(col, vec3(0.3, 0.285, 0.27), 1.0 - smoothstep(-0.02, 0.22, d.y));
+        gl_FragColor = vec4(col, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 24), mat);
+  mesh.renderOrder = -10;
+  mesh.userData.uniforms = uniforms;
+  return mesh;
+}
+
+/** A bare, dead tree in 3D: a leaning trunk forking into twisted, tapering branches. */
+export function deadTree3D(material, height = 7) {
+  const parts = [];
+  const grow = (base, dir, len, r, depth) => {
+    const end = base.clone().addScaledVector(dir, len);
+    const geo = new THREE.CylinderGeometry(r * 0.62, r, len, 6, 1);
+    geo.translate(0, len / 2, 0);
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    geo.applyQuaternion(q);
+    geo.translate(base.x, base.y, base.z);
+    parts.push(geo);
+    if (depth <= 0) return;
+    const forks = depth > 2 ? 2 : 3;
+    for (let f = 0; f < forks; f++) {
+      const nd = dir.clone().add(new THREE.Vector3(rand(-0.9, 0.9), rand(0.1, 0.6), rand(-0.9, 0.9))).normalize();
+      grow(end, nd, len * rand(0.5, 0.72), r * 0.6, depth - 1);
+    }
+  };
+  grow(new THREE.Vector3(0, -0.3, 0), new THREE.Vector3(rand(-0.15, 0.15), 1, rand(-0.15, 0.15)).normalize(), height * 0.45, height * 0.035, 4);
+  // merge by hand (no addon import needed): concatenate positions and normals
+  let count = 0;
+  for (const g of parts) count += g.index ? g.index.count : g.attributes.position.count;
+  const pos = new Float32Array(count * 3), nrm = new Float32Array(count * 3);
+  let o = 0;
+  for (const g of parts) {
+    const ng = g.index ? g.toNonIndexed() : g;
+    pos.set(ng.attributes.position.array, o * 3);
+    nrm.set(ng.attributes.normal.array, o * 3);
+    o += ng.attributes.position.count;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+  const m = new THREE.Mesh(geo, material);
+  m.castShadow = true;
+  return m;
+}
+
 /** A ring of jagged mountains on the horizon, only really seen against the lightning. */
-export function mountainRing(radius = 64) {
+export function mountainRing(radius = 64, color = 0x06070b, scale = 1) {
   const seg = 160;
   const pos = [];
-  const hgt = (a) => 1.5 + Math.abs(Math.sin(a * 3.1 + 1.2)) * 4.5 + Math.sin(a * 7.7) * 1.4 + Math.sin(a * 17.3 + 0.7) * 0.8 + Math.sin(a * 41) * 0.3;
+  const hgt = (a) => (1.5 + Math.abs(Math.sin(a * 3.1 + 1.2)) * 4.5 + Math.sin(a * 7.7) * 1.4 + Math.sin(a * 17.3 + 0.7) * 0.8 + Math.sin(a * 41) * 0.3) * scale;
   for (let i = 0; i < seg; i++) {
     const a0 = (i / seg) * TAU, a1 = ((i + 1) / seg) * TAU;
     const p = (a, y) => [Math.cos(a) * radius, y, Math.sin(a) * radius];
@@ -75,7 +145,7 @@ export function mountainRing(radius = 64) {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color: 0x06070b, side: THREE.DoubleSide, fog: false }));
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, fog: false }));
   m.renderOrder = -9;
   return m;
 }

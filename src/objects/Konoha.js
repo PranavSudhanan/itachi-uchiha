@@ -19,6 +19,14 @@ function roof(x, px, y, w, h) {
   x.lineTo(px + w * 0.2, y - h);
   x.closePath();
   x.fill();
+  if (roof.rim) {
+    x.save();
+    x.strokeStyle = roof.rim; x.lineWidth = 2;
+    x.beginPath();
+    x.moveTo(px - w * 0.14, y - h * 0.22); x.lineTo(px + w * 0.2, y - h); x.lineTo(px + w * 0.8, y - h);
+    x.stroke();
+    x.restore();
+  }
 }
 
 function windows(x, px, y, w, h, lit) {
@@ -27,10 +35,16 @@ function windows(x, px, y, w, h, lit) {
     if (Math.random() > lit) continue;
     const wx = px + 10 + c * ((w - 20) / cols), ww = (w - 20) / cols - 10, wy = y + h * 0.25, wh = h * 0.4;
     if (ww < 8) continue;
+    const warm = rand(0, 1), dim = rand(0.55, 1);
+    const top = warm < 0.5 ? [255, 196, 122] : [255, 176, 96], bot = warm < 0.5 ? [224, 120, 46] : [200, 92, 34];
+    const tone = (a) => `rgb(${a[0] * dim | 0},${a[1] * dim | 0},${a[2] * dim | 0})`;
     const g = x.createLinearGradient(0, wy, 0, wy + wh);
-    g.addColorStop(0, '#ffc47a'); g.addColorStop(1, '#e0782e');
+    g.addColorStop(0, tone(top)); g.addColorStop(1, tone(bot));
+    x.save();
+    x.shadowColor = `rgba(255,140,60,${0.5 * dim})`; x.shadowBlur = 18;
     x.fillStyle = g;
     x.fillRect(wx, wy, ww, wh);
+    x.restore();
     // shoji lattice
     x.fillStyle = 'rgba(40,14,6,0.8)';
     for (let k = 1; k < 3; k++) x.fillRect(wx + (ww * k) / 3 - 1, wy, 2, wh);
@@ -42,6 +56,7 @@ function nearLayer() {
   const W = 4096, H = 1024, base = H * 0.86;
   return drawTexture(W, H, (x) => {
     const sil = '#080306';
+    roof.rim = 'rgba(150,40,36,0.45)';
     let px = -40;
     const poles = [];
     while (px < W + 40) {
@@ -96,6 +111,16 @@ function nearLayer() {
       }
     }
     x.fillRect(0, base, W, H - base);
+    roof.rim = null;
+    // paper lanterns hanging at the doors, each with a pool of glow
+    for (let i = 0; i < 26; i++) {
+      const lx = rand(0, W), ly = base - rand(30, 60);
+      const g = x.createRadialGradient(lx, ly, 0, lx, ly, 60);
+      g.addColorStop(0, 'rgba(255,150,70,0.35)'); g.addColorStop(1, 'rgba(255,120,50,0)');
+      x.fillStyle = g; x.fillRect(lx - 60, ly - 60, 120, 120);
+      x.fillStyle = '#ffb060'; x.beginPath(); x.ellipse(lx, ly, 6, 9, 0, 0, Math.PI * 2); x.fill();
+      x.fillStyle = 'rgba(80,20,10,0.8)'; x.fillRect(lx - 6, ly - 10, 12, 2); x.fillRect(lx - 6, ly + 8, 12, 2);
+    }
   });
 }
 
@@ -112,6 +137,9 @@ function farLayer() {
     }
     x.lineTo(W, H);
     x.closePath(); x.fill();
+    const glow = x.createLinearGradient(0, H * 0.62, 0, H * 0.92);
+    glow.addColorStop(0, 'rgba(120,40,24,0)'); glow.addColorStop(1, 'rgba(150,60,30,0.45)');
+    x.fillStyle = glow; x.fillRect(0, H * 0.62, W, H * 0.38);
     // distant roofs in the haze
     const haze = '#1f080d';
     x.fillStyle = haze;
@@ -138,6 +166,15 @@ export function konohaSkyline() {
   const far = layer(farLayer(), 190, 47, -8, -70);
   const near = layer(nearLayer(), 120, 30, -12.5, -38);
   near.renderOrder = -5;
-  g.add(far, near);
+  // light pollution: the village's lamps warm the air just above its roofs
+  const hazeTex = drawTexture(4, 128, (x, w, hh) => {
+    const gr = x.createLinearGradient(0, 0, 0, hh);
+    gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.7, 'rgba(255,255,255,0.8)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, w, hh);
+  });
+  const haze = new THREE.Mesh(new THREE.PlaneGeometry(200, 10), new THREE.MeshBasicMaterial({ map: hazeTex, color: 0x7a2a18, transparent: true, opacity: 0.35, fog: false, depthWrite: false, blending: THREE.AdditiveBlending }));
+  haze.position.set(0, -10.5, -50);
+  haze.renderOrder = -5.5;
+  g.add(far, near, haze);
   return g;
 }

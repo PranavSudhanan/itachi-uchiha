@@ -6,7 +6,9 @@ import { FlameField } from '../objects/FlameField.js';
 import { createItachi } from '../objects/ItachiGLB.js';
 import { CineCam } from '../core/CineCam.js';
 import { Shockwave } from '../objects/Shockwave.js';
-import { makeSky, drawTexture, rand, damp, TAU, h, clamp, sharinganTexture } from '../core/utils.js';
+import { drawTexture, rand, damp, TAU, h, clamp, sharinganTexture } from '../core/utils.js';
+import { overcastSky, mountainRing, deadTree3D } from '../objects/Storm.js';
+import { createGrass } from '../objects/Nature.js';
 
 const COST = 18;
 const STRAIN_STAGES = [
@@ -33,12 +35,16 @@ export class Amaterasu extends Chapter {
 
   build() {
     const s = this.scene;
-    s.add(makeSky('#3d2a33', '#8a6a6e', { exponent: 0.9 }));
-    s.fog = new THREE.Fog(0x6e5358, 14, 50);
+    // a desolate plain under a heavy overcast, the sun a dim patch behind the cloud
+    const sunDir = new THREE.Vector3(-0.5, 0.35, -0.8);
+    this.sky = overcastSky(sunDir);
+    s.add(this.sky);
+    s.fog = new THREE.Fog(0x4e4843, 16, 58);
+    s.add(mountainRing(66, 0x4a4541, 0.55));
 
-    s.add(new THREE.HemisphereLight(0xd8c0c4, 0x2a1a1e, 1.4));
-    const sun = new THREE.DirectionalLight(0xffe2d8, 1.1);
-    sun.position.set(-5, 10, 6);
+    s.add(new THREE.HemisphereLight(0xc8c2bc, 0x3a2f28, 1.3));
+    const sun = new THREE.DirectionalLight(0xffe8d0, 1.0);
+    sun.position.copy(sunDir).multiplyScalar(16).setY(10);
     sun.castShadow = !this.app.low;
     sun.shadow.mapSize.set(1024, 1024);
     Object.assign(sun.shadow.camera, { left: -16, right: 16, top: 16, bottom: -16, near: 1, far: 40 });
@@ -46,27 +52,55 @@ export class Amaterasu extends Chapter {
 
     // ground (cracked earth)
     const tex = drawTexture(1024, 1024, (x, w) => {
-      x.fillStyle = '#5a4a4c'; x.fillRect(0, 0, w, w);
-      for (let i = 0; i < 9000; i++) {
-        const v = rand(60, 110);
-        x.fillStyle = `rgba(${v},${v * 0.85},${v * 0.85},${rand(0.1, 0.4)})`;
-        x.fillRect(rand(0, w), rand(0, w), rand(1, 4), rand(1, 4));
+      x.fillStyle = '#6a5e52'; x.fillRect(0, 0, w, w);
+      // patches of paler dust and darker earth
+      for (let i = 0; i < 60; i++) {
+        const cx = rand(0, w), cy = rand(0, w), r = rand(60, 200), l = rand(80, 125);
+        const g = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, `rgba(${l},${l * 0.9},${l * 0.78},0.35)`); g.addColorStop(1, `rgba(${l},${l * 0.9},${l * 0.78},0)`);
+        x.fillStyle = g; x.fillRect(0, 0, w, w);
       }
-      x.strokeStyle = 'rgba(30,20,22,0.55)';
-      for (let i = 0; i < 70; i++) {
-        let px = rand(0, w), py = rand(0, w);
-        x.lineWidth = rand(1, 3);
-        x.beginPath(); x.moveTo(px, py);
-        for (let k = 0; k < 8; k++) { px += rand(-50, 50); py += rand(-50, 50); x.lineTo(px, py); }
-        x.stroke();
+      for (let i = 0; i < 12000; i++) {
+        const v = rand(70, 130);
+        x.fillStyle = `rgba(${v},${v * 0.9},${v * 0.78},${rand(0.1, 0.4)})`;
+        x.fillRect(rand(0, w), rand(0, w), rand(1, 3), rand(1, 3));
+      }
+      // crazed mud: a web of cracks round irregular cells
+      const pts = Array.from({ length: 170 }, () => [rand(0, w), rand(0, w)]);
+      x.strokeStyle = 'rgba(28,22,18,0.6)';
+      for (const [px, py] of pts) {
+        const near = pts.map((q) => [q, Math.hypot(q[0] - px, q[1] - py)]).sort((a, b) => a[1] - b[1]).slice(1, 4);
+        for (const [[qx, qy]] of near) {
+          x.lineWidth = rand(0.6, 1.8);
+          x.beginPath(); x.moveTo(px, py);
+          const mx = (px + qx) / 2 + rand(-14, 14), my = (py + qy) / 2 + rand(-14, 14);
+          x.quadraticCurveTo(mx, my, qx, qy); x.stroke();
+        }
       }
     });
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(4, 4);
+    tex.repeat.set(14, 14);
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(90, 90), new THREE.MeshStandardMaterial({ map: tex, roughness: 1 }));
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.receiveShadow = true;
     s.add(this.ground);
+
+    // dry, dead grass in tufts across the plain
+    const grass = createGrass({ count: this.app.low ? 1500 : 3500, area: 44, center: new THREE.Vector3(0, 0, -4), tip: 0x9a8a62, base: 0x3e3424, height: [0.2, 0.55] });
+    s.add(grass);
+    // bare, dead trees round the edge of the field
+    const barkMat = new THREE.MeshStandardMaterial({ color: 0x3a302a, roughness: 1 });
+    for (let i = 0; i < (this.app.low ? 7 : 12); i++) {
+      const a = rand(-Math.PI * 1.05, Math.PI * 0.05), r = rand(17, 30);
+      const tree = deadTree3D(barkMat, rand(5, 9));
+      tree.position.set(Math.cos(a) * r, 0, Math.sin(a) * r - 4);
+      tree.rotation.y = rand(0, TAU);
+      s.add(tree);
+    }
+    // ash drifting down out of the grey
+    this.ash = new ParticlePool({ count: 300, blending: THREE.NormalBlending, drag: 0.6, turbulence: 0.8, softness: 1.2 });
+    s.add(this.ash.points);
+    this.ashCols = [new THREE.Color(0x3a3634), new THREE.Color(0x77706a), new THREE.Color(0x1e1a1a)];
 
     // burnable objects: logs, training posts, rocks
     this.burnables = [];
@@ -473,6 +507,12 @@ export class Amaterasu extends Chapter {
   }
 
   update(dt, t) {
+    this.sky.userData.uniforms.uTime.value = t;
+    // ash: a steady drift, thicker while the black flames burn
+    if (Math.random() < dt * (6 + this.sources.length * 1.5)) {
+      this.ash.emit({ x: rand(-14, 14), y: rand(5, 9), z: rand(-16, 6), vx: rand(-0.3, 0.3), vy: rand(-0.7, -0.35), vz: rand(-0.2, 0.2), life: rand(5, 9), size: rand(0.03, 0.07), color: this.ashCols[Math.floor(rand(0, 3))], alpha: 0.8 });
+    }
+    this.ash.update(dt, t);
     const hold = this.trackHold(0.45, !this.painting && !this.cine.active);
     if (hold.fired) {
       const hit = this._gazeHit();
