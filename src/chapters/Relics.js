@@ -1,8 +1,8 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
-import { drawTexture, drawLeaf, cloudShape, damp, rand, TAU, h, glowTexture, clamp } from '../core/utils.js';
+import { drawTexture, drawLeaf, cloudShape, damp, rand, TAU, h, clamp } from '../core/utils.js';
 import { RELICS } from '../data/content.js';
 
 const R = 4.2;
@@ -10,7 +10,7 @@ const R = 4.2;
 export class Relics extends Chapter {
   constructor(app) {
     super(app, { id: 'relics', title: 'Relics', jp: '遺品' });
-    this.bloom = { strength: 0.55, radius: 0.4, threshold: 0.92 };
+    this.bloom = { strength: 0.4, radius: 0.4, threshold: 0.92 };
     this.mood = 'calm';
     this.trail = false;
     this.rot = 0;
@@ -22,14 +22,16 @@ export class Relics extends Chapter {
 
   build() {
     const s = this.scene;
-    s.background = new THREE.Color(0x0a0509);
-    s.fog = new THREE.Fog(0x0a0509, 12, 30);
+    // a dim shrine hall of the Uchiha: wooden floor and pillars, shoji screens lit from behind, the clan's
+    // crest on a banner, and each relic on a stone plinth in its own shaft of light
+    s.background = new THREE.Color(0x070405);
+    s.fog = new THREE.Fog(0x0a0605, 10, 34);
 
     const pmrem = new THREE.PMREMGenerator(this.app.renderer);
     s.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     s.environmentIntensity = 0.45;
 
-    s.add(new THREE.HemisphereLight(0x5a3a4a, 0x0a0406, 1.2));
+    s.add(new THREE.HemisphereLight(0x6a5048, 0x0a0605, 1.0));
     const spot = new THREE.SpotLight(0xfff0e8, 70, 30, 0.5, 0.6, 1.5);
     spot.position.set(0, 12, 8);
     spot.target.position.set(0, 0, R);
@@ -37,27 +39,79 @@ export class Relics extends Chapter {
     spot.shadow.mapSize.set(1024, 1024);
     spot.shadow.bias = -0.0005;
     s.add(spot, spot.target);
-    const rim = new THREE.PointLight(0xff1a2a, 30, 20);
+    const rim = new THREE.PointLight(0xff4a2a, 10, 20);
     rim.position.set(0, 3, -2);
     s.add(rim);
 
     // floor
     const floorTex = drawTexture(1024, 1024, (x, w) => {
-      x.fillStyle = '#140a0e'; x.fillRect(0, 0, w, w);
-      x.translate(w / 2, w / 2);
-      for (let r = 60; r < 512; r += 62) {
-        x.strokeStyle = `rgba(208,20,42,${0.35 - r / 2000})`;
-        x.lineWidth = r % 124 === 60 ? 3 : 1;
-        x.beginPath(); x.arc(0, 0, r, 0, TAU); x.stroke();
+      // planks of dark stained wood with grain, joints and a worn path round the display
+      const plank = 64;
+      for (let y = 0; y < w; y += plank) {
+        const off = rand(0, w);
+        for (let px = -off; px < w; px += rand(300, 520)) {
+          const l = rand(34, 52);
+          x.fillStyle = `rgb(${l},${l * 0.62},${l * 0.42})`;
+          x.fillRect(px, y, 520, plank);
+          for (let g = 0; g < 14; g++) {
+            x.strokeStyle = `rgba(${l * 0.5},${l * 0.3},${l * 0.2},${rand(0.25, 0.55)})`;
+            x.lineWidth = rand(0.6, 2);
+            const gy = y + rand(4, plank - 4);
+            x.beginPath(); x.moveTo(px, gy); x.bezierCurveTo(px + 150, gy + rand(-4, 4), px + 300, gy + rand(-4, 4), px + 520, gy + rand(-3, 3)); x.stroke();
+          }
+          x.fillStyle = 'rgba(8,4,2,0.9)'; x.fillRect(px, y, 3, plank);
+        }
+        x.fillStyle = 'rgba(8,4,2,0.9)'; x.fillRect(0, y, w, 2);
       }
-      x.fillStyle = 'rgba(208,20,42,0.25)';
-      x.font = '900 120px "Noto Serif JP"'; x.textAlign = 'center'; x.textBaseline = 'middle';
-      x.fillText('写', 0, 0);
     });
-    const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 96), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.55, metalness: 0.3 }));
+    floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
+    floorTex.repeat.set(3, 3);
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 96), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.38, metalness: 0 }));
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     s.add(floor);
+
+    // walls: wooden pillars between shoji panels glowing faintly from lamps behind them
+    const wallTex = drawTexture(1024, 512, (x, w, hh) => {
+      x.fillStyle = '#120a07'; x.fillRect(0, 0, w, hh);
+      const bays = 4, bw = w / bays;
+      for (let b = 0; b < bays; b++) {
+        const x0 = b * bw;
+        const g = x.createRadialGradient(x0 + bw / 2, hh * 0.55, 10, x0 + bw / 2, hh * 0.55, bw * 0.7);
+        g.addColorStop(0, '#b8844a'); g.addColorStop(1, '#4a2e18');
+        x.fillStyle = g; x.fillRect(x0 + 26, hh * 0.18, bw - 52, hh * 0.7);
+        x.strokeStyle = '#1a0f09'; x.lineWidth = 5;
+        for (let i = 1; i < 4; i++) { x.beginPath(); x.moveTo(x0 + 26 + (i * (bw - 52)) / 4, hh * 0.18); x.lineTo(x0 + 26 + (i * (bw - 52)) / 4, hh * 0.88); x.stroke(); }
+        for (let j = 1; j < 6; j++) { x.beginPath(); x.moveTo(x0 + 26, hh * 0.18 + (j * hh * 0.7) / 6); x.lineTo(x0 + bw - 26, hh * 0.18 + (j * hh * 0.7) / 6); x.stroke(); }
+        x.fillStyle = '#2a1a10'; x.fillRect(x0, 0, 26, hh); x.fillRect(x0 + bw - 26, 0, 26, hh);
+      }
+      x.fillStyle = '#1e120b'; x.fillRect(0, 0, w, hh * 0.18); x.fillRect(0, hh * 0.88, w, hh * 0.12);
+    });
+    wallTex.wrapS = THREE.RepeatWrapping;
+    wallTex.repeat.set(6, 1);
+    const walls = new THREE.Mesh(new THREE.CylinderGeometry(13, 13, 8, 64, 1, true), new THREE.MeshStandardMaterial({ map: wallTex, emissive: 0xffffff, emissiveMap: wallTex, emissiveIntensity: 0.07, roughness: 0.9, color: 0x9a8a80, side: THREE.BackSide }));
+    walls.position.y = 4;
+    s.add(walls);
+    // the Uchiha crest on a hanging banner behind the display
+    const banner = drawTexture(256, 512, (x, w, hh) => {
+      x.fillStyle = '#16100e'; x.fillRect(0, 0, w, hh);
+      x.strokeStyle = '#3a2a20'; x.lineWidth = 8; x.strokeRect(8, 8, w - 16, hh - 16);
+      const cx = w / 2, cy = hh * 0.38, r = w * 0.3;
+      x.fillStyle = '#e8e0d4'; x.fillRect(cx - 10, cy + r * 0.6, 20, r * 1.6);
+      x.fillStyle = '#b3121c'; x.beginPath(); x.arc(cx, cy, r, Math.PI, 0); x.closePath(); x.fill();
+      x.fillStyle = '#e8e0d4'; x.beginPath(); x.arc(cx, cy, r, 0, Math.PI); x.closePath(); x.fill();
+    });
+    const bannerMesh = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 4.4), new THREE.MeshStandardMaterial({ map: banner, roughness: 0.95 }));
+    bannerMesh.position.set(0, 4.3, -12.7);
+    s.add(bannerMesh);
+    const bannerLight = new THREE.SpotLight(0xffd8b0, 25, 14, 0.35, 0.6, 1.5);
+    bannerLight.position.set(0, 7.5, -8);
+    bannerLight.target = bannerMesh;
+    s.add(bannerLight);
+    // dust drifting through the shafts of light
+    this.dust = new ParticlePool({ count: 300, drag: 0.5, turbulence: 0.3, softness: 2 });
+    s.add(this.dust.points);
+    this.dustColor = new THREE.Color(0xffe6c8);
 
     this.carousel = new THREE.Group();
     s.add(this.carousel);
@@ -71,27 +125,42 @@ export class Relics extends Chapter {
       cloud: () => this._cloud(),
     };
 
-    const pedMat = new THREE.MeshStandardMaterial({ color: 0x1d1418, roughness: 0.7, metalness: 0.2 });
-    const glowRing = new THREE.MeshBasicMaterial({ color: 0xff2233 });
+    const stoneTex = drawTexture(256, 256, (x, w) => {
+      x.fillStyle = '#4a4648'; x.fillRect(0, 0, w, w);
+      for (let i = 0; i < 2600; i++) { const l = rand(40, 110); x.fillStyle = `rgba(${l},${l},${l + 4},${rand(0.3, 0.7)})`; x.fillRect(rand(0, w), rand(0, w), rand(1, 3), rand(1, 3)); }
+    });
+    const pedMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.55, metalness: 0 });
+    const brass = new THREE.MeshStandardMaterial({ color: 0xb08a4a, metalness: 0.9, roughness: 0.35, emissive: 0xff9a40, emissiveIntensity: 0 });
+    const beamTex = drawTexture(4, 256, (x, w, hh) => {
+      const g = x.createLinearGradient(0, 0, 0, hh);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.3, 'rgba(255,255,255,0.55)'); g.addColorStop(1, 'rgba(255,255,255,0.9)');
+      x.fillStyle = g; x.fillRect(0, 0, w, hh);
+    });
     this.items = RELICS.map((r, i) => {
       const a = (i / RELICS.length) * TAU;
       const holder = new THREE.Group();
       holder.position.set(Math.sin(a) * R, 0, Math.cos(a) * R);
       holder.rotation.y = a;
-      const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.75, 0.9, 32), pedMat);
-      ped.position.y = 0.45;
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.64, 0.015, 6, 64), glowRing.clone());
-      ring.rotation.x = Math.PI / 2;
+      const ped = new THREE.Group();
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.14, 1.3), pedMat);
+      foot.position.y = 0.07;
+      const col = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.66, 1.0), pedMat);
+      col.position.y = 0.47;
+      const top = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.1, 1.2), pedMat);
+      top.position.y = 0.85;
+      ped.add(foot, col, top);
+      // a brass rim round the top slab: it warms when the relic is chosen
+      const ring = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.025, 1.22), brass.clone());
       ring.position.y = 0.91;
-      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff2030, transparent: true, opacity: 0.15, blending: THREE.AdditiveBlending, depthWrite: false }));
-      halo.scale.set(2.4, 2.4, 1);
-      halo.position.y = 1.6;
+      // the shaft of light falling on the relic from above
+      const halo = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.85, 6.5, 32, 1, true), new THREE.MeshBasicMaterial({ map: beamTex, color: 0xffe2c0, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+      halo.position.y = 0.9 + 3.25;
       const obj = builders[r.key]();
       const spin = new THREE.Group();
       spin.add(obj);
       spin.position.y = 1.65;
       holder.add(ped, ring, halo, spin);
-      holder.traverse((o) => { o.userData.index = i; if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      holder.traverse((o) => { o.userData.index = i; if (o.isMesh && o !== halo) { o.castShadow = true; o.receiveShadow = true; } });
       this.carousel.add(holder);
       return { holder, spin, obj, ring, halo, baseY: 1.65, rx: 0, ry: 0 };
     });
@@ -231,7 +300,10 @@ export class Relics extends Chapter {
     const white = new THREE.Mesh(new THREE.ExtrudeGeometry(cloudShape(0.72), { ...opts, depth: 0.08 }), new THREE.MeshStandardMaterial({ color: 0xf3efe8, roughness: 0.6 }));
     red.geometry.center(); white.geometry.center();
     white.position.z = -0.06;
-    g.add(white, red);
+    // red on both faces, with the white border between them, so it reads from behind too
+    const back = red.clone();
+    back.position.z = -0.12;
+    g.add(white, red, back);
     return g;
   }
 
@@ -388,8 +460,13 @@ export class Relics extends Chapter {
       }
       const s = isFocus ? 1.45 : isHover ? 1.4 : 1.25;
       it.spin.scale.setScalar(damp(it.spin.scale.x, s, 8, dt));
-      it.halo.material.opacity = damp(it.halo.material.opacity, isFocus ? 0.45 : isHover ? 0.3 : 0.12, 6, dt);
-      it.ring.material.color.setHSL(0.99, 1, isFocus || isHover ? 0.6 : 0.4);
+      it.halo.material.opacity = damp(it.halo.material.opacity, isFocus ? 0.09 : isHover ? 0.06 : 0.028, 6, dt);
+      it.ring.material.emissiveIntensity = damp(it.ring.material.emissiveIntensity, isFocus ? 0.5 : isHover ? 0.3 : 0, 6, dt);
+      // dust turning in the chosen relic's light
+      if (isFocus && Math.random() < dt * 30) {
+        const wp = it.holder.getWorldPosition(new THREE.Vector3());
+        this.dust.emit({ x: wp.x + rand(-0.6, 0.6), y: rand(1, 4.5), z: wp.z + rand(-0.6, 0.6), vx: rand(-0.05, 0.05), vy: rand(-0.06, 0.03), vz: rand(-0.05, 0.05), life: rand(3, 6), size: rand(0.012, 0.03), color: this.dustColor, alpha: 0.7 });
+      }
     });
 
     // camera
@@ -410,5 +487,6 @@ export class Relics extends Chapter {
     this.camera.lookAt(this.lookAt);
 
     this.sparks.update(dt, t);
+    this.dust.update(dt, t);
   }
 }

@@ -18,13 +18,13 @@ float vnoise(vec2 p){
 float fbm(vec2 p){ float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++){ v += a * vnoise(p); p = p * 2.03 + 1.7; a *= 0.5; } return v; }
 `;
 
-export function duskSky(moonDir, radius = 90) {
-  const uniforms = { uTime: { value: 0 }, uMoon: { value: moonDir.clone().normalize() } };
+export function duskSky(moonDir, radius = 90, { dim = 1 } = {}) {
+  const uniforms = { uTime: { value: 0 }, uMoon: { value: moonDir.clone().normalize() }, uDim: { value: dim } };
   const mat = new THREE.ShaderMaterial({
     uniforms, side: THREE.BackSide, depthWrite: false, fog: false,
     vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
     fragmentShader: /* glsl */ `
-      uniform float uTime; uniform vec3 uMoon; varying vec3 vD;
+      uniform float uTime; uniform vec3 uMoon; uniform float uDim; varying vec3 vD;
       ${NOISE2}
       void main(){
         vec3 d = normalize(vD);
@@ -44,6 +44,7 @@ export function duskSky(moonDir, radius = 90) {
         // the first stars, only in the darker sky above
         vec2 sp = d.xz / (d.y + 1.0) * 180.0;
         float st = step(0.9975, hash2(floor(sp))) * smoothstep(0.35, 0.8, h) * (1.0 - cloud);
+        col *= uDim;
         col += vec3(1.0, 0.85, 0.8) * st * (0.5 + 0.5 * sin(uTime * 2.0 + hash2(floor(sp) + 3.0) * 30.0));
         gl_FragColor = vec4(col, 1.0);
         #include <colorspace_fragment>
@@ -55,11 +56,50 @@ export function duskSky(moonDir, radius = 90) {
   return mesh;
 }
 
-/** A cratered blood moon: warm and dim enough to hold its detail, with a soft corona. */
-export function bloodMoon(radius = 6) {
+/** A clear night: deep blue, stars, and thin clouds edged silver where they pass near the moon. */
+export function nightSky(moonDir, radius = 90) {
+  const uniforms = { uTime: { value: 0 }, uMoon: { value: moonDir.clone().normalize() } };
+  const mat = new THREE.ShaderMaterial({
+    uniforms, side: THREE.BackSide, depthWrite: false, fog: false,
+    vertexShader: 'varying vec3 vD; void main(){ vD = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: /* glsl */ `
+      uniform float uTime; uniform vec3 uMoon; varying vec3 vD;
+      ${NOISE2}
+      void main(){
+        vec3 d = normalize(vD);
+        float h = clamp(d.y, -0.2, 1.0);
+        // a hazy blue horizon (it matches the fog), deepening to near-black navy overhead
+        vec3 col = mix(vec3(0.02, 0.028, 0.048), vec3(0.008, 0.012, 0.026), smoothstep(-0.02, 0.3, h));
+        col = mix(col, vec3(0.002, 0.003, 0.008), smoothstep(0.3, 0.9, h));
+        float moon = max(dot(d, uMoon), 0.0);
+        col += vec3(0.2, 0.24, 0.34) * pow(moon, 24.0) * 0.6 + vec3(0.04, 0.05, 0.08) * pow(moon, 6.0) * 0.5;
+        vec2 uv = d.xz / (h + 0.22) * 0.55 + vec2(uTime * 0.006, 0.0);
+        float n = fbm(uv * vec2(1.0, 1.8) + fbm(uv * 1.7) * 0.7);
+        float cloud = smoothstep(0.52, 0.8, n) * smoothstep(0.0, 0.12, h);
+        vec3 cc = mix(vec3(0.012, 0.015, 0.026), vec3(0.3, 0.33, 0.42), pow(moon, 10.0) * 0.9 + 0.04);
+        col = mix(col, cc, cloud * 0.8);
+        vec2 sp = d.xz / (d.y + 1.0) * 220.0;
+        float st = step(0.997, hash2(floor(sp))) * smoothstep(0.15, 0.6, h) * (1.0 - cloud) * (1.0 - pow(moon, 6.0));
+        col += vec3(0.9, 0.92, 1.0) * st * (0.55 + 0.45 * sin(uTime * 1.7 + hash2(floor(sp) + 7.0) * 40.0));
+        gl_FragColor = vec4(col, 1.0);
+        #include <colorspace_fragment>
+      }`,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 24), mat);
+  mesh.renderOrder = -10;
+  mesh.userData.uniforms = uniforms;
+  return mesh;
+}
+
+/**
+ * A cratered moon, dim enough to hold its detail, with a soft corona. A blood moon by default; `pale`
+ * gives an ordinary silver moon.
+ */
+export function bloodMoon(radius = 6, { pale = false } = {}) {
+  const stops = pale ? ['#f4f1ea', '#d8d6d0', '#8a8a94'] : ['#ffd2b4', '#f0a080', '#b85a48'];
   const tex = drawTexture(512, 512, (x, w) => {
     const g = x.createRadialGradient(w * 0.46, w * 0.44, 0, w / 2, w / 2, w / 2);
-    g.addColorStop(0, '#ffd2b4'); g.addColorStop(0.7, '#f0a080'); g.addColorStop(1, '#b85a48');
+    g.addColorStop(0, stops[0]); g.addColorStop(0.7, stops[1]); g.addColorStop(1, stops[2]);
     x.fillStyle = g; x.beginPath(); x.arc(w / 2, w / 2, w / 2 - 2, 0, TAU); x.fill();
     x.save(); x.beginPath(); x.arc(w / 2, w / 2, w / 2 - 2, 0, TAU); x.clip();
     // maria: broad darker seas
@@ -82,8 +122,8 @@ export function bloodMoon(radius = 6) {
     x.restore();
   });
   const g = new THREE.Group();
-  const disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 64), new THREE.MeshBasicMaterial({ map: tex, transparent: true, fog: false, color: 0xd8b0a0 }));
-  const corona = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff5030, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+  const disc = new THREE.Mesh(new THREE.CircleGeometry(radius, 64), new THREE.MeshBasicMaterial({ map: tex, transparent: true, fog: false, color: pale ? 0xc8ccd8 : 0xd8b0a0 }));
+  const corona = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: pale ? 0x8fa0d0 : 0xff5030, transparent: true, opacity: pale ? 0.22 : 0.35, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
   corona.scale.setScalar(radius * 4.2);
   corona.position.z = -0.5;
   g.add(corona, disc);

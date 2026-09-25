@@ -1,11 +1,12 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
 import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { SharinganEye } from '../objects/Eye.js';
 import { createGrass, createForest, emitFireflies } from '../objects/Nature.js';
 import { kunaiGeometry, shurikenGeometry, tagTexture, steel } from '../objects/Weapons.js';
-import { makeSky, glowTexture, rand, damp, clamp, h, toScreen, pick } from '../core/utils.js';
+import { glowTexture, drawTexture, rand, damp, clamp, h, toScreen, pick, TAU } from '../core/utils.js';
+import { nightSky, bloodMoon } from '../objects/Dusk.js';
 
 const TYPES = {
   kunai: { pts: 10, speed: 1 },
@@ -40,24 +41,87 @@ export class Precognition extends Chapter {
 
   build() {
     const s = this.scene;
-    s.add(makeSky('#070b1a', '#2a2640', { exponent: 0.7 }));
-    s.fog = new THREE.FogExp2(0x1a1a2c, 0.032);
+    // a forest at night under a low moon: it backlights the trees and catches the steel flying out of them
+    const moonPos = new THREE.Vector3(-16, 12, -62);
+    this.sky = nightSky(moonPos);
+    s.add(this.sky);
+    const moonDisc = bloodMoon(3, { pale: true });
+    moonDisc.position.copy(moonPos);
+    moonDisc.lookAt(0, 1.7, 2);
+    s.add(moonDisc);
+    s.fog = new THREE.FogExp2(0x0a101d, 0.028);
+    // the night sky, as the steel reflects it
+    {
+      const pm = new THREE.PMREMGenerator(this.app.renderer);
+      const envScene = new THREE.Scene();
+      envScene.add(nightSky(moonPos, 40));
+      const m2 = bloodMoon(6, { pale: true });
+      m2.position.copy(moonPos).setLength(35);
+      m2.lookAt(0, 0, 0);
+      envScene.add(m2);
+      s.environment = pm.fromScene(envScene, 0.02).texture;
+      pm.dispose();
+    }
 
-    s.add(new THREE.HemisphereLight(0x8fa0d0, 0x1a1410, 1.5));
+    s.add(new THREE.HemisphereLight(0x7f90c0, 0x1c1812, 1.7));
     const moon = new THREE.DirectionalLight(0xc8d4ff, 2.6);
-    moon.position.set(-8, 14, -10);
+    moon.position.copy(moonPos).setLength(30);
     moon.castShadow = !this.app.low;
     moon.shadow.mapSize.set(1024, 1024);
     Object.assign(moon.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20, near: 1, far: 50 });
     s.add(moon);
 
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(60, 48), new THREE.MeshStandardMaterial({ color: 0x0b100a, roughness: 1 }));
+    // forest floor: moss, needles and fallen leaves
+    const floor = drawTexture(512, 512, (x, w) => {
+      x.fillStyle = '#141a10'; x.fillRect(0, 0, w, w);
+      for (let i = 0; i < 3500; i++) {
+        const t = Math.random();
+        x.fillStyle = t < 0.5 ? `rgba(${rand(20, 40)},${rand(30, 50)},${rand(15, 28)},0.6)` : t < 0.85 ? `rgba(${rand(50, 80)},${rand(35, 55)},${rand(20, 30)},0.55)` : `rgba(${rand(70, 100)},${rand(60, 80)},${rand(40, 55)},0.5)`;
+        x.save(); x.translate(rand(0, w), rand(0, w)); x.rotate(rand(0, TAU));
+        x.beginPath(); x.ellipse(0, 0, rand(2, 7), rand(1, 3), 0, 0, TAU); x.fill(); x.restore();
+      }
+    });
+    floor.wrapS = floor.wrapT = THREE.RepeatWrapping;
+    floor.repeat.set(16, 16);
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(60, 48), new THREE.MeshStandardMaterial({ map: floor, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     s.add(ground);
     s.add(createGrass({ count: this.app.low ? 3000 : 8000, area: 26, center: new THREE.Vector3(0, 0, -10) }));
     s.add(createForest({ count: this.app.low ? 28 : 46, rMin: 16, rMax: 34, arc: [-Math.PI * 0.98, -Math.PI * 0.02], castShadow: !this.app.low }));
     s.add(createForest({ count: 16, rMin: 12, rMax: 22, arc: [Math.PI * 0.1, Math.PI * 0.9], castShadow: false }));
+
+    // shafts of moonlight slanting down between the trees, and mist lying low over the ground
+    const shaftTex = drawTexture(64, 256, (x, w, hh) => {
+      const g = x.createLinearGradient(0, 0, 0, hh);
+      g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.35, 'rgba(255,255,255,0.9)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = g; x.fillRect(0, 0, w, hh);
+      const e = x.createLinearGradient(0, 0, w, 0);
+      e.addColorStop(0, 'rgba(0,0,0,1)'); e.addColorStop(0.5, 'rgba(0,0,0,0)'); e.addColorStop(1, 'rgba(0,0,0,1)');
+      x.globalCompositeOperation = 'destination-out'; x.fillStyle = e; x.fillRect(0, 0, w, hh);
+    });
+    this.shafts = [];
+    for (let i = 0; i < 7; i++) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(rand(1.2, 2.6), 18), new THREE.MeshBasicMaterial({ map: shaftTex, color: 0x9fb4ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide }));
+      m.position.set(rand(-12, 12), 6, rand(-24, -10));
+      m.rotation.set(0, rand(-0.3, 0.3), 0.42 + rand(-0.08, 0.08)); // leaning away from the low moon
+      m.userData = { base: rand(0.035, 0.07), ph: rand(0, TAU) };
+      s.add(m);
+      this.shafts.push(m);
+    }
+    const mistTex = drawTexture(128, 128, (x, w) => {
+      const g = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+      g.addColorStop(0, 'rgba(255,255,255,0.8)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = g; x.fillRect(0, 0, w, w);
+    });
+    this.mist = [];
+    for (let i = 0; i < 14; i++) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(rand(8, 14), rand(3, 5)), new THREE.MeshBasicMaterial({ map: mistTex, color: 0x6a7a9a, transparent: true, opacity: rand(0.05, 0.1), depthWrite: false }));
+      m.position.set(rand(-16, 16), rand(0.3, 1.2), rand(-30, -6));
+      m.userData = { vx: rand(0.1, 0.35) * (Math.random() < 0.5 ? -1 : 1) };
+      s.add(m);
+      this.mist.push(m);
+    }
 
     this.fireflies = new ParticlePool({ count: 120, softness: 2 });
     s.add(this.fireflies.points);
@@ -73,6 +137,18 @@ export class Precognition extends Chapter {
     this.tagMat = new THREE.MeshStandardMaterial({ map: tagTexture(), side: THREE.DoubleSide, roughness: 0.9, emissive: 0x220000 });
     this.tagGeo = new THREE.PlaneGeometry(0.18, 0.5);
     this.glowTex = glowTexture();
+    this.glintTex = drawTexture(128, 128, (x, w) => {
+      x.translate(w / 2, w / 2);
+      const g = x.createRadialGradient(0, 0, 0, 0, 0, w * 0.12);
+      g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = g; x.beginPath(); x.arc(0, 0, w * 0.12, 0, TAU); x.fill();
+      for (const a of [0, Math.PI / 2]) {
+        x.save(); x.rotate(a);
+        const l = x.createLinearGradient(-w / 2, 0, w / 2, 0);
+        l.addColorStop(0, 'rgba(255,255,255,0)'); l.addColorStop(0.5, 'rgba(255,255,255,1)'); l.addColorStop(1, 'rgba(255,255,255,0)');
+        x.fillStyle = l; x.fillRect(-w / 2, -1.5, w, 3); x.restore();
+      }
+    });
 
     // trajectory lines (revealed by the Sharingan)
     this.lineMat = new THREE.LineBasicMaterial({ color: 0xff1a2a, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
@@ -187,8 +263,9 @@ export class Precognition extends Chapter {
       m.add(fuse);
     } else m = new THREE.Mesh(this.geo[type], this.mat);
     // a cold glint so steel reads against the night
-    const glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, color: 0x9fc0ff, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.7 }));
-    glint.scale.setScalar(0.7);
+    const glint = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glintTex, color: 0xd8e4ff, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 }));
+    glint.scale.setScalar(0.32);
+    glint.position.z = 0.25;
     m.add(glint);
     m.position.copy(from);
     if (type !== 'shuriken') m.lookAt(from.clone().add(vel));
@@ -202,7 +279,7 @@ export class Precognition extends Chapter {
 
     // throw flash in the trees
     this.sparks.burst(from, 10, { speed: 2, life: [0.2, 0.5], size: [0.05, 0.12], colors: this.sparkColors });
-    this.items.push({ m, line, vel, type, state: 'fly', t: 0, spin: rand(14, 24) });
+    this.items.push({ m, line, vel, type, state: 'fly', t: 0, spin: rand(14, 24), glint, gph: rand(0, TAU) });
     this.app.sfx.swoosh();
   }
 
@@ -335,6 +412,13 @@ export class Precognition extends Chapter {
   /* ---------- loop ---------- */
 
   update(dt, t) {
+    this.sky.userData.uniforms.uTime.value = t;
+    for (const m of this.shafts) m.material.opacity = m.userData.base * (0.75 + 0.25 * Math.sin(t * 0.5 + m.userData.ph));
+    for (const m of this.mist) {
+      m.position.x += m.userData.vx * dt;
+      if (m.position.x > 20) m.position.x = -20; else if (m.position.x < -20) m.position.x = 20;
+      m.quaternion.copy(this.camera.quaternion);
+    }
     const p = this.app.pointer;
     const wantSharingan = this.state === 'playing' && ((p.down && !this.pressedItem && performance.now() - p.startTime > 160) || this.spaceHeld);
     this.sharingan = wantSharingan && this.chakra > 1;
@@ -371,6 +455,8 @@ export class Precognition extends Chapter {
       if (it.type === 'shuriken') it.m.rotation.set(Math.PI / 2 - 0.3, 0, it.m.rotation.z + it.spin * sdt);
       else if (it.state === 'deflected') { it.m.rotation.x += 12 * sdt; it.m.rotation.y += 8 * sdt; }
       it.line.visible = it.state === 'fly';
+      // the blade catches the moon now and then as it turns
+      it.glint.material.opacity = Math.pow(Math.max(0, Math.sin(it.t * (it.type === 'shuriken' ? 9 : 5) + it.gph)), 6) * 0.9;
       if (it.state === 'fly' && it.m.position.z > this.camera.position.z - 0.8) {
         this._remove(it);
         this.items.splice(i, 1);

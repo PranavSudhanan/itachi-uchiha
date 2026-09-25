@@ -1,11 +1,12 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { CrowBurst } from '../objects/Crow.js';
-import { createGrass, createForest, emitFireflies } from '../objects/Nature.js';
+import { createGrass, createForest, emitFireflies, barkTexture } from '../objects/Nature.js';
+import { nightSky, bloodMoon } from '../objects/Dusk.js';
 import { shurikenGeometry } from '../objects/Weapons.js';
 import { JutsuDirector } from './JutsuDirector.js';
-import { drawTexture, makeSky, rand, damp, TAU, h, NOISE_GLSL, shared, glowTexture } from '../core/utils.js';
+import { drawTexture, rand, damp, TAU, h, NOISE_GLSL, shared, glowTexture } from '../core/utils.js';
 import { HAND_SIGNS, JUTSU } from '../data/content.js';
 
 function fireMaterial() {
@@ -63,8 +64,11 @@ export class Training extends Chapter {
 
   build() {
     const s = this.scene;
-    s.fog = new THREE.Fog(0x120812, 14, 55);
-    s.add(makeSky('#070410', '#2c0d1a'));
+    // a clear moonlit night: the distance fades into a cool blue haze instead of going black
+    s.fog = new THREE.Fog(0x070b14, 16, 72);
+    const moonPos = new THREE.Vector3(14, 16, -60);
+    this.sky = nightSky(moonPos);
+    s.add(this.sky);
 
     s.add(new THREE.HemisphereLight(0x8090c0, 0x1a1410, 1.6));
     const moonLight = new THREE.DirectionalLight(0xc8d0ff, 2.4);
@@ -72,10 +76,21 @@ export class Training extends Chapter {
     s.add(moonLight);
     this.flash = new THREE.PointLight(0xff7020, 0, 40, 1.5);
     s.add(this.flash);
+    const paperTex = drawTexture(256, 256, (x, w) => {
+      x.fillStyle = '#e8a060'; x.fillRect(0, 0, w, w);
+      const g = x.createLinearGradient(0, 0, w, 0);
+      g.addColorStop(0, 'rgba(80,20,0,0.5)'); g.addColorStop(0.5, 'rgba(255,220,160,0)'); g.addColorStop(1, 'rgba(80,20,0,0.5)');
+      x.fillStyle = g; x.fillRect(0, 0, w, w);
+      x.strokeStyle = 'rgba(60,20,5,0.55)'; x.lineWidth = 3;
+      for (let y = 10; y < w; y += 22) { x.beginPath(); x.moveTo(0, y); x.lineTo(w, y); x.stroke(); }
+      x.fillStyle = 'rgba(40,6,4,0.85)';
+      x.font = '900 120px "Noto Serif JP", serif'; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText('火', w / 4, w / 2); x.fillText('火', (w * 3) / 4, w / 2);
+    });
     for (const x of [-5, 5]) {
       const l = new THREE.Object3D();
       // paper lantern hanging from a wooden post
-      const paper = new THREE.Mesh(new THREE.SphereGeometry(0.2, 20, 14), new THREE.MeshStandardMaterial({ color: 0x3a0806, emissive: 0xff5a24, emissiveIntensity: 1.1, roughness: 0.8 }));
+      const paper = new THREE.Mesh(new THREE.SphereGeometry(0.2, 24, 16), new THREE.MeshStandardMaterial({ color: 0x3a1206, map: paperTex, emissive: 0xffffff, emissiveMap: paperTex, emissiveIntensity: 0.75, roughness: 0.85 }));
       paper.scale.y = 1.35;
       paper.position.set(x, 2.25, -3);
       const capMat = new THREE.MeshStandardMaterial({ color: 0x120b08, roughness: 0.7 });
@@ -83,25 +98,24 @@ export class Training extends Chapter {
       capT.position.set(x, 2.52, -3);
       const capB = capT.clone();
       capB.position.y = 1.98;
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.05, 2.9, 6), new THREE.MeshStandardMaterial({ color: 0x2a1d16 }));
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 2.9, 8), new THREE.MeshStandardMaterial({ color: 0xa08070, map: barkTexture(), roughness: 0.95 }));
       post.position.set(x + 0.35, 1.45, -3);
       const arm = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.04, 0.04), capMat);
       arm.position.set(x + 0.18, 2.62, -3);
-      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff7a30, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5 }));
-      halo.scale.setScalar(1.6);
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff7a30, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.3 }));
+      halo.scale.setScalar(1.1);
       halo.position.copy(paper.position);
       l.position.copy(paper.position);
-      s.add(paper, capT, capB, post, arm, halo);
+      const glowL = new THREE.PointLight(0xff8a40, 2.2, 7, 1.8);
+      glowL.position.copy(paper.position);
+      s.add(paper, capT, capB, post, arm, halo, glowL);
     }
 
     // moon
-    const moon = new THREE.Mesh(new THREE.CircleGeometry(2.6, 48), new THREE.MeshBasicMaterial({ color: 0xfff4e8, fog: false }));
-    moon.position.set(14, 16, -60);
+    const moon = bloodMoon(3.2, { pale: true });
+    moon.position.copy(moonPos);
+    moon.lookAt(0, 2, 6);
     s.add(moon);
-    const mg = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xffe0d0, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, fog: false, depthWrite: false }));
-    mg.scale.setScalar(26);
-    mg.position.copy(moon.position);
-    s.add(mg);
 
     // moonlight shadows
     moonLight.castShadow = !this.app.low;
@@ -124,6 +138,44 @@ export class Training extends Chapter {
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     s.add(ground);
+    // the trodden clearing where the targets stand: bare earth thinning out into the grass
+    const dirt = drawTexture(512, 512, (x, w) => {
+      const g = x.createRadialGradient(w / 2, w / 2, w * 0.1, w / 2, w / 2, w / 2);
+      g.addColorStop(0, 'rgba(58,46,34,0.95)'); g.addColorStop(0.6, 'rgba(48,40,30,0.7)'); g.addColorStop(1, 'rgba(40,36,28,0)');
+      x.fillStyle = g; x.fillRect(0, 0, w, w);
+      for (let i = 0; i < 1800; i++) {
+        const l = rand(30, 80);
+        x.fillStyle = `rgba(${l},${l * 0.85},${l * 0.65},${rand(0.1, 0.35)})`;
+        x.fillRect(rand(40, w - 40), rand(40, w - 40), rand(1, 4), rand(1, 4));
+      }
+    });
+    const clearing = new THREE.Mesh(new THREE.PlaneGeometry(16, 13), new THREE.MeshStandardMaterial({ map: dirt, transparent: true, roughness: 1, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1 }));
+    clearing.rotation.x = -Math.PI / 2;
+    clearing.position.set(0, 0.01, -8.5);
+    clearing.receiveShadow = true;
+    s.add(clearing);
+    const bark = new THREE.MeshStandardMaterial({ color: 0xc8a890, map: barkTexture(), roughness: 0.95 });
+    const rope = new THREE.MeshStandardMaterial({ color: 0x9c8a66, roughness: 1 });
+    [[6.6, -4.8], [7.7, -6.2], [8.8, -7.8]].forEach(([x, z], i) => {
+      const hgt = 1.5 + i * 0.12;
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.3, hgt, 14), bark);
+      log.position.set(x, hgt / 2, z);
+      log.rotation.y = rand(0, TAU);
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.035, 6, 20), rope);
+      band.rotation.x = Math.PI / 2;
+      band.position.set(x, hgt * 0.62, z);
+      log.castShadow = log.receiveShadow = true;
+      s.add(log, band);
+    });
+    const stoneMat = new THREE.MeshStandardMaterial({ color: 0x55565c, roughness: 0.95, flatShading: true });
+    [[-6.5, -5.5, 0.5], [-7.4, -12, 0.8], [6, -13, 0.6], [-3, -4.5, 0.3], [9.5, -3, 0.45]].forEach(([x, z, r]) => {
+      const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(r, 0), stoneMat);
+      rock.position.set(x, r * 0.35, z);
+      rock.scale.set(rand(1, 1.5), rand(0.55, 0.8), rand(1, 1.3));
+      rock.rotation.set(rand(0, 3), rand(0, 3), 0);
+      rock.castShadow = rock.receiveShadow = true;
+      s.add(rock);
+    });
     this.grass = createGrass({ count: this.app.low ? 3500 : 9000, area: 24, center: new THREE.Vector3(0, 0, -8), tip: 0x5f7f3c, base: 0x13200f, avoid: (x, z) => Math.abs(x) < 1.3 && z > -2 });
     s.add(this.grass);
     s.add(createForest({ count: this.app.low ? 30 : 52, rMin: 22, rMax: 40, arc: [-Math.PI * 1.1, Math.PI * 0.1], center: new THREE.Vector3(0, 0, -4), castShadow: false }));
@@ -131,14 +183,20 @@ export class Training extends Chapter {
     s.add(this.fireflies.points);
 
     // targets
-    const targetTex = drawTexture(256, 256, (x, w) => {
+    // a slab of wood with painted rings, weathered: the paint faded and flaking, the grain showing through,
+    // pitted where blades have struck
+    const targetTex = drawTexture(512, 512, (x, w) => {
+      x.fillStyle = '#7a5838'; x.fillRect(0, 0, w, w);
       x.translate(w / 2, w / 2);
-      const rings = ['#f1e8de', '#c1121f', '#f1e8de', '#c1121f', '#f1e8de', '#1a0508'];
-      rings.forEach((c, i) => { x.fillStyle = c; x.beginPath(); x.arc(0, 0, 126 - i * 21, 0, TAU); x.fill(); });
-      x.strokeStyle = 'rgba(60,30,10,0.4)';
-      for (let i = 0; i < 30; i++) { x.beginPath(); x.arc(0, 0, rand(10, 126), rand(0, TAU), rand(0, TAU)); x.stroke(); }
+      for (let r = 4; r < 256; r += rand(5, 11)) { x.strokeStyle = `rgba(60,38,20,${rand(0.2, 0.45)})`; x.lineWidth = rand(1, 3); x.beginPath(); x.arc(rand(-3, 3), rand(-3, 3), r, 0, TAU); x.stroke(); }
+      const rings = ['#a89a84', '#6e1618', '#a89a84', '#6e1618', '#a89a84', '#241010'];
+      rings.forEach((c, i) => { x.globalAlpha = 0.78; x.fillStyle = c; x.beginPath(); x.arc(0, 0, 230 - i * 38, 0, TAU); x.fill(); });
+      x.globalAlpha = 1;
+      for (let i = 0; i < 260; i++) { x.fillStyle = `rgba(110,80,50,${rand(0.3, 0.7)})`; const a = rand(0, TAU), r = rand(0, 235); x.beginPath(); x.ellipse(Math.cos(a) * r, Math.sin(a) * r, rand(2, 9), rand(1, 4), a, 0, TAU); x.fill(); }
+      for (let i = 0; i < 40; i++) { x.fillStyle = 'rgba(20,10,5,0.75)'; const a = rand(0, TAU), r = rand(0, 170); x.fillRect(Math.cos(a) * r, Math.sin(a) * r, rand(2, 5), rand(6, 14)); }
+      x.strokeStyle = 'rgba(40,24,12,0.8)'; x.lineWidth = 10; x.beginPath(); x.arc(0, 0, 250, 0, TAU); x.stroke();
     });
-    const woodMat = new THREE.MeshStandardMaterial({ color: 0x5a3a24, roughness: 0.9 });
+    const woodMat = new THREE.MeshStandardMaterial({ color: 0xb89878, map: barkTexture(), roughness: 0.95 });
     const layout = [
       { x: -4.5, y: 1.7, z: -9, move: 0 }, { x: 0, y: 2.4, z: -12, move: 2.5 }, { x: 4.5, y: 1.6, z: -10, move: 0 },
       { x: -2, y: 3.4, z: -16, move: -3 }, { x: 3, y: 1.2, z: -6.5, move: 0, bob: 1 },
@@ -146,9 +204,9 @@ export class Training extends Chapter {
     this.targets = layout.map((L, i) => {
       const g = new THREE.Group();
       g.position.set(L.x, 0, L.z);
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, L.y, 8), woodMat);
+      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.14, L.y, 10), woodMat);
       post.position.y = L.y / 2;
-      const faceMat = new THREE.MeshStandardMaterial({ map: targetTex, roughness: 0.8 });
+      const faceMat = new THREE.MeshStandardMaterial({ map: targetTex, roughness: 0.92 });
       const disk = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.14, 40), [woodMat, faceMat, woodMat]);
       disk.rotation.x = Math.PI / 2;
       disk.position.y = L.y;
@@ -484,6 +542,7 @@ export class Training extends Chapter {
   }
 
   update(dt, t) {
+    this.sky.userData.uniforms.uTime.value = t;
     if (this.round.on) {
       this.round.time -= dt;
       this.timeEl.textContent = Math.max(0, this.round.time).toFixed(1);

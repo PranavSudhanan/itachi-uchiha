@@ -1,10 +1,12 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { Chapter } from '../core/Chapter.js';
 import { voice } from '../core/Voice.js';
 import { SharinganEye } from '../objects/Eye.js';
 import { ParticlePool } from '../objects/Particles.js';
-import { featherTexture, glowTexture, drawTexture, rand, damp, TAU, h, pointerOnPlane } from '../core/utils.js';
+import { featherTexture, rand, damp, TAU, h, pointerOnPlane } from '../core/utils.js';
 import { PROFILE } from '../data/content.js';
+import { duskSky, bloodMoon } from '../objects/Dusk.js';
+import { konohaSkyline } from '../objects/Konoha.js';
 
 const MODES = [3, 'mangekyo', 0];
 const MODE_INFO = {
@@ -39,7 +41,6 @@ export class Hero extends Chapter {
 
   build() {
     const s = this.scene;
-    s.background = new THREE.Color(0x07030a);
     s.fog = new THREE.FogExp2(0x0b0309, 0.03);
     this.camera.position.set(0, 0, 11);
 
@@ -48,61 +49,15 @@ export class Hero extends Chapter {
     key.position.set(0, 2, 5);
     s.add(key);
 
-    // --- red moon ---
-    const moonTex = drawTexture(512, 512, (x, w) => {
-      const g = x.createRadialGradient(w * 0.45, w * 0.45, 0, w / 2, w / 2, w / 2);
-      g.addColorStop(0, '#ff7a5e'); g.addColorStop(0.7, '#e3242b'); g.addColorStop(1, '#a1101a');
-      x.fillStyle = g; x.fillRect(0, 0, w, w);
-      for (let i = 0; i < 70; i++) {
-        const r = rand(6, 50);
-        x.fillStyle = `rgba(120,10,20,${rand(0.08, 0.22)})`;
-        x.beginPath(); x.arc(rand(0, w), rand(0, w), r, 0, TAU); x.fill();
-      }
-    });
-    this.moon = new THREE.Mesh(new THREE.CircleGeometry(7, 64), new THREE.MeshBasicMaterial({ map: moonTex, fog: false }));
-    this.moon.position.set(30, 24, -85);
+    // --- Konoha by night under a blood-red moon ---
+    const moonPos = new THREE.Vector3(24, 22, -85);
+    this.sky = duskSky(moonPos, 90, { dim: 0.32 }); // night, not dusk: the red only glows around the moon
+    s.add(this.sky);
+    this.moon = bloodMoon(8);
+    this.moon.position.copy(moonPos);
+    this.moon.lookAt(0, 0, 11);
     s.add(this.moon);
-    const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xff2030, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
-    moonGlow.scale.setScalar(38);
-    moonGlow.position.copy(this.moon.position).add(new THREE.Vector3(0, 0, -1));
-    s.add(moonGlow);
-
-    // slow clouds drifting across the moon
-    const cloudTex = drawTexture(256, 128, (x, w, hh) => {
-      for (let i = 0; i < 40; i++) {
-        const cx = rand(40, w - 40), cy = rand(40, hh - 30), r = rand(18, 40);
-        const g = x.createRadialGradient(cx, cy, 0, cx, cy, r);
-        g.addColorStop(0, 'rgba(40,12,20,0.55)'); g.addColorStop(1, 'rgba(40,12,20,0)');
-        x.fillStyle = g; x.beginPath(); x.arc(cx, cy, r, 0, TAU); x.fill();
-      }
-    });
-    this.clouds = Array.from({ length: 7 }, (_, i) => {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false, fog: false, opacity: rand(0.6, 1) }));
-      sp.scale.set(rand(30, 48), rand(10, 16), 1);
-      sp.position.set(rand(-70, 70), 24 + rand(-10, 8), -80 + i * 0.3);
-      sp.userData.v = rand(0.8, 2);
-      s.add(sp);
-      return sp;
-    });
-
-    // --- rooftops silhouette (Konoha at night) ---
-    const roofMat = new THREE.MeshBasicMaterial({ color: 0x030104 });
-    const roofs = new THREE.Group();
-    let x0 = -60;
-    while (x0 < 60) {
-      const w = rand(2, 6), hh = rand(1, 7);
-      const b = new THREE.Mesh(new THREE.BoxGeometry(w, hh, 2), roofMat);
-      b.position.set(x0 + w / 2, -12 + hh / 2, -35 + rand(-3, 3));
-      roofs.add(b);
-      if (Math.random() < 0.35) {
-        const roof = new THREE.Mesh(new THREE.ConeGeometry(w * 0.75, rand(1, 2), 4), roofMat);
-        roof.rotation.y = Math.PI / 4;
-        roof.position.set(b.position.x, -12 + hh + 0.5, b.position.z);
-        roofs.add(roof);
-      }
-      x0 += w + rand(0, 1.5);
-    }
-    s.add(roofs);
+    s.add(konohaSkyline());
 
     // --- the eye ---
     this.eye = new SharinganEye({ radius: 1.75, mode: 3 });
@@ -273,10 +228,7 @@ export class Hero extends Chapter {
     } else this.grade.ca = 0.012;
     if (hold.fired) { this.cycle(); this.app.flash(0.35, 0xff2030); }
     this.eye.update(dt);
-    this.clouds.forEach((cl) => {
-      cl.position.x += cl.userData.v * dt;
-      if (cl.position.x > 70) cl.position.x = -70;
-    });
+    this.sky.userData.uniforms.uTime.value = t;
 
     // eye looks at pointer (or wanders when idle)
     let tx, ty;

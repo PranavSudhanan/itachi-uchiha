@@ -1,4 +1,4 @@
-﻿import * as THREE from 'three';
+import * as THREE from 'three';
 import { shared, rand, TAU, drawTexture } from '../core/utils.js';
 
 /**
@@ -66,7 +66,7 @@ export function createGrass({ count = 12000, area = 40, center = new THREE.Vecto
 }
 
 let _bark;
-function barkTexture() {
+export function barkTexture() {
   if (_bark) return _bark;
   _bark = drawTexture(128, 256, (x, w, hh) => {
     x.fillStyle = '#2a1e17'; x.fillRect(0, 0, w, hh);
@@ -92,7 +92,20 @@ export function createForest({ count = 40, rMin = 20, rMax = 40, arc = [0, TAU],
   const trunkMat = new THREE.MeshStandardMaterial({ map: barkTexture(), roughness: 1 });
   const leafMat = new THREE.MeshStandardMaterial({ color: leaf, roughness: 0.95, flatShading: true });
   const layers = [[2.6, 3.4, 4.4], [2.1, 3, 6.2], [1.5, 2.6, 7.9], [0.9, 2, 9.4]];
-  const cones = layers.map(([r, hgt]) => { const g = new THREE.ConeGeometry(r, hgt, 8); g.translate(0, hgt / 2, 0); return g; });
+  // each tier's lower rim is ragged and droops a little, like real branches, not a clean cone
+  const cones = layers.map(([r, hgt]) => {
+    const g = new THREE.ConeGeometry(r, hgt, 12, 2);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const y = p.getY(i);
+      if (y > -hgt / 2 + 1e-3) continue;
+      const k = rand(0.78, 1.18);
+      p.setX(i, p.getX(i) * k); p.setZ(i, p.getZ(i) * k); p.setY(i, y - rand(0, hgt * 0.14));
+    }
+    g.computeVertexNormals();
+    g.translate(0, hgt / 2, 0);
+    return g;
+  });
   const trunks = new THREE.InstancedMesh(trunkGeo, trunkMat, count);
   const leaves = cones.map((g) => new THREE.InstancedMesh(g, leafMat, count));
   const d = new THREE.Object3D();
@@ -106,7 +119,7 @@ export function createForest({ count = 40, rMin = 20, rMax = 40, arc = [0, TAU],
     d.scale.set(s, s * rand(0.9, 1.2), s);
     d.updateMatrix();
     trunks.setMatrixAt(i, d.matrix);
-    col.setHSL(0.36 + rand(-0.03, 0.03), 0.35, rand(0.06, 0.12));
+    col.setHSL(0.34 + rand(-0.04, 0.04), 0.32, rand(0.1, 0.17));
     leaves.forEach((lm, k) => {
       d.position.y = (layers[k][2] - 2.2) * s;
       d.updateMatrix();
