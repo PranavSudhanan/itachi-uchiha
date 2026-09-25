@@ -4,16 +4,23 @@ import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { drawTexture, rand, damp, clamp, h, glowTexture, TAU } from '../core/utils.js';
 import { createGrass } from '../objects/Nature.js';
+import { createCrowGeometry, createCrowMaterial, addPhases } from '../objects/Crow.js';
 import { nightSky, bloodMoon } from '../objects/Dusk.js';
 import { TIMELINE } from '../data/content.js';
 
 const V_TMP = new THREE.Vector3();
 
+const GROUND_Y = -0.8; // matches the path's ground in build()
+
 export class Chronicle extends Chapter {
   constructor(app) {
     super(app, { id: 'chronicle', title: 'Chronicle', jp: '年代記' });
-    this.shiftView = 0.12;
+    this.shiftView = 0; // the reading camera sets its own view offset (see _freeRegion)
     this.bloom = { strength: 0.8, radius: 0.5, threshold: 0.6 };
+    // the scrolls are read, so the film look stays light here: barely any colour fringing, fine grain
+    this.grade.ca = 0.003;
+    this.grade.grain = 0.018;
+    this.minDpr = 1; // never render the scrolls below the screen's own resolution
     this.mood = 'calm';
     this.p = 0;
     this.pt = 0;
@@ -37,6 +44,11 @@ export class Chronicle extends Chapter {
     this.moonOffset = moonDir.clone().multiplyScalar(70);
     s.add(this.moon);
     this.lamp = new THREE.PointLight(0xffb070, 0, 9, 1.6);
+    this.readLight = new THREE.SpotLight(0xffd2a0, 0, 12, 0.42, 0.85, 1.5);
+    this.readLight.castShadow = !this.app.low;
+    this.readLight.shadow.mapSize.set(1024, 1024);
+    this.readLight.shadow.radius = 4;
+    s.add(this.readLight, this.readLight.target);
     s.add(this.lamp);
 
     const n = TIMELINE.length;
@@ -196,25 +208,97 @@ export class Chronicle extends Chapter {
     }
     s.add(stalks, leaves);
 
-    // slabs
+    // the chapters of his life, each written on a hanging scroll along the path
+    const standWood = new THREE.MeshStandardMaterial({ color: 0x2a1c12, roughness: 0.75 });
+    const crowSpots = [];
     this.slabs = TIMELINE.map((ev, i) => {
       const t = (i + 1) / (n + 1);
       const p = this.curve.getPointAt(t);
       const side = i % 2 ? 1 : -1;
       const tex = this._slabTexture(ev, i);
-      const face = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.05, roughness: 0.85 });
-      const slab = new THREE.Mesh(new RoundedBoxGeometry(3.2, 2, 0.3, 3, 0.05), [stoneMat, stoneMat, stoneMat, stoneMat, face, stoneMat]);
-      slab.position.copy(p).add(new THREE.Vector3(side * 2.1, GROUND + 0.34 + 1.0, 0));
+      const face = new THREE.MeshPhysicalMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.03, roughness: 0.92, bumpMap: Chronicle.fibreTexture(), bumpScale: 0.3, sheen: 0.2, sheenRoughness: 0.6, sheenColor: new THREE.Color(0xd8c8a8), side: THREE.DoubleSide });
+      // a hanging scroll: washi on a silk mount, bowed a little by its own weight
+      const SW = 1.9, SH = 2.7;
+      const paperGeo = new THREE.PlaneGeometry(SW, SH, 24, 24);
+      {
+        const pp = paperGeo.attributes.position;
+        for (let v = 0; v < pp.count; v++) {
+          const u = pp.getX(v) / (SW / 2), yv = pp.getY(v) / (SH / 2);
+          const curl = Math.max(0, Math.abs(u) - 0.9) / 0.1; // the outer tenth of each side
+          const foot = Math.max(0, -yv - 0.94) / 0.06; // the last few centimetres at the bottom
+          pp.setZ(v, -u * u * 0.05 + Math.sin(yv * 5 + u) * 0.008 - curl * curl * 0.03 + foot * foot * 0.025);
+        }
+        paperGeo.computeVertexNormals();
+      }
+      const slab = new THREE.Mesh(paperGeo, face);
+      slab.position.copy(p).add(new THREE.Vector3(side * 2.1, GROUND + 0.55 + SH / 2, 0));
       const look = this.curve.getPointAt(Math.max(0, t - 0.06));
       slab.lookAt(look.x + side * 0.5, slab.position.y, look.z);
       slab.castShadow = true;
-      slab.userData = { index: i, t, face };
+      slab.userData = { index: i, t, face, baseQ: slab.quaternion.clone(), ph: rand(0, TAU), SH };
+      slab.updateMatrixWorld(true);
+      slab.userData.pivot = slab.localToWorld(new THREE.Vector3(0, SH / 2, 0));
+      // the mount's body: a thin backing with a little thickness, so the edge reads as cloth on card
+      // it follows the sheet's own bow and curl, just behind it
+      const backGeo = paperGeo.clone();
+      backGeo.translate(0, 0, -0.008);
+      const backing = new THREE.Mesh(backGeo, new THREE.MeshPhysicalMaterial({ color: 0x2c2620, roughness: 0.85, sheen: 0.5, sheenColor: new THREE.Color(0x5a4c3a), side: THREE.BackSide }));
+      backing.castShadow = true;
+      slab.add(backing);
+      // the roller at the foot: a round wooden rod weighting the scroll, lacquered knobs at its ends (jiku)
+      const roller = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, SW + 0.08, 14), new THREE.MeshStandardMaterial({ color: 0x3a2618, roughness: 0.5 }));
+      roller.rotation.z = Math.PI / 2;
+      roller.position.set(0, -SH / 2 - 0.015, 0.01);
+      roller.castShadow = true;
+      const lacquer = new THREE.MeshPhysicalMaterial({ color: 0x1c0e08, roughness: 0.18, clearcoat: 1, clearcoatRoughness: 0.1 });
+      for (const kx of [-(SW / 2 + 0.07), SW / 2 + 0.07]) {
+        const knob = new THREE.Mesh(new THREE.LatheGeometry([0.018, 0.045, 0.05, 0.046, 0.03].map((r, k) => new THREE.Vector2(r, k * 0.022 - 0.044)), 16), lacquer);
+        knob.rotation.z = kx > 0 ? -Math.PI / 2 : Math.PI / 2;
+        knob.position.set(kx, -SH / 2 - 0.015, 0.01);
+        slab.add(knob);
+      }
+      slab.add(roller);
       s.add(slab);
-      // the stele stands on a low plinth
-      const plinth = new THREE.Mesh(new RoundedBoxGeometry(3.6, 0.34, 0.8, 3, 0.06), stoneMat);
-      plinth.position.set(slab.position.x, GROUND + 0.17, slab.position.z);
-      plinth.quaternion.copy(slab.quaternion);
-      s.add(plinth);
+      // its stand: two posts on stone footings, a crossbeam, the rods top and bottom of the scroll
+      const stand = new THREE.Group();
+      stand.position.set(slab.position.x, GROUND, slab.position.z);
+      stand.quaternion.copy(slab.quaternion);
+      for (const sx of [-1.15, 1.15]) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.13, 3.7, 0.13), standWood);
+        post.position.set(sx, 1.85, -0.08);
+        const foot = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.2, 0.34, 2, 0.04), stoneMat);
+        foot.position.set(sx, 0.1, -0.08);
+        post.castShadow = true;
+        stand.add(post, foot);
+      }
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.14, 0.16), standWood);
+      beam.position.set(0, 3.62, -0.08);
+      const topRod = new THREE.Mesh(new THREE.BoxGeometry(0.03, SW + 0.04, 0.05), new THREE.MeshPhysicalMaterial({ color: 0x3a3228, roughness: 0.8, sheen: 0.5, sheenColor: new THREE.Color(0x6a5a44) }));
+      topRod.rotation.z = Math.PI / 2;
+      topRod.position.set(0, 0.55 + SH + 0.02, 0);
+      const cordM = new THREE.MeshStandardMaterial({ color: 0x3a2a1c, roughness: 0.9 });
+      const hook = new THREE.Vector3(0, 3.5, 0), topY = 0.55 + SH + 0.02;
+      const cords = new THREE.Group();
+      for (const cx of [-SW * 0.36, SW * 0.36]) {
+        const from = new THREE.Vector3(cx, topY, 0), dir = hook.clone().sub(from);
+        const c = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, dir.length(), 5), cordM);
+        c.position.copy(from).addScaledVector(dir, 0.5);
+        c.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+        cords.add(c);
+      }
+      const hookM = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.007, 6, 12), new THREE.MeshStandardMaterial({ color: 0x6a5a40, metalness: 0.7, roughness: 0.4 }));
+      hookM.position.copy(hook);
+      cords.add(hookM);
+      const weight = new THREE.Group();
+      // a little roof over the beam keeps the rain off the paper
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(2.95, 0.05, 0.62), new THREE.MeshStandardMaterial({ color: 0x24211f, roughness: 0.5 }));
+      roof.position.set(0, 3.74, -0.05);
+      roof.rotation.x = 0.12;
+      stand.add(beam, topRod, cords, weight, roof);
+      s.add(stand);
+      slab.userData.stand = stand;
+      // a crow keeps watch on some of the stands
+      if (i % 3 === 1) crowSpots.push(stand.localToWorld(new THREE.Vector3(side * 0.9, 3.9, -0.08)));
       // a stone lantern beside it, a candle inside
       const lantern = this._lantern(stoneMat);
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(slab.quaternion);
@@ -229,6 +313,15 @@ export class Chronicle extends Chapter {
       return slab;
     });
     this.stops = this.slabs.map((sl) => clamp(sl.userData.t - 0.05, 0, 1));
+    // the watching crows
+    {
+      const geo = createCrowGeometry(0.5);
+      addPhases(geo, crowSpots.length);
+      this.watchCrows = new THREE.InstancedMesh(geo, createCrowMaterial({ flap: 12, amp: 0, glide: 0, rim: 0x8090b0, rimAmt: 0.3 }), crowSpots.length);
+      this.watchCrows.frustumCulled = false;
+      this.crowSpots = crowSpots.map((p) => ({ p, yaw: rand(0, TAU), next: rand(1, 4) }));
+      s.add(this.watchCrows);
+    }
 
     // mist lying low between the culms, drifting slowly along the path
     const mistTex = drawTexture(128, 128, (x, w) => {
@@ -272,49 +365,132 @@ export class Chronicle extends Chapter {
     return g;
   }
 
-  /** The inscription, carved into granite: dark engraved letters with a lit lower edge, the age inlaid in red lacquer. */
+  /**
+   * The scroll's face, mounted the traditional way: plain silk above and below (ten / chi), thin gold
+   * brocade strips framing the paper (ichimonji), silk down the sides, two narrow strips hanging from the
+   * top (futai). The paper is aged washi; the kanji are brushed to fit, with dry-brush texture; the age is a
+   * hand-carved red seal; the title and age are written small at the foot.
+   */
   _slabTexture(ev, i) {
-    return drawTexture(1024, 640, (x, w, hh) => {
-      x.fillStyle = '#7c7872'; x.fillRect(0, 0, w, hh);
-      for (let k = 0; k < 9000; k++) {
-        const l = rand(70, 140);
-        x.fillStyle = `rgba(${l},${l - 4},${l - 8},${rand(0.2, 0.55)})`;
-        x.fillRect(rand(0, w), rand(0, hh), rand(1, 3), rand(1, 3));
-      }
-      // weathering: darker streaks running down from the top edge
-      for (let k = 0; k < 40; k++) {
-        const sx = rand(0, w), gl = x.createLinearGradient(0, 0, 0, rand(80, 300));
-        gl.addColorStop(0, 'rgba(30,28,24,0.35)'); gl.addColorStop(1, 'rgba(30,28,24,0)');
-        x.fillStyle = gl; x.fillRect(sx, 0, rand(6, 30), 300);
-      }
-      // lichen rosettes, and damp darkening creeping up from the foot
-      for (let k = 0; k < 30; k++) {
-        const cx = rand(0, w), cy = rand(0, 1) < 0.6 ? rand(hh * 0.7, hh) : rand(0, hh), r = rand(6, 26);
-        const lg = x.createRadialGradient(cx, cy, 0, cx, cy, r);
-        const c = rand(0, 1) < 0.5 ? '150,160,120' : '60,80,40';
-        lg.addColorStop(0, `rgba(${c},0.35)`); lg.addColorStop(1, `rgba(${c},0)`);
-        x.fillStyle = lg; x.fillRect(cx - r, cy - r, r * 2, r * 2);
-      }
-      const damp = x.createLinearGradient(0, hh * 0.72, 0, hh);
-      damp.addColorStop(0, 'rgba(24,30,18,0)'); damp.addColorStop(1, 'rgba(24,30,18,0.55)');
-      x.fillStyle = damp; x.fillRect(0, hh * 0.72, w, hh * 0.28);
-      const carve = (draw, fill = 'rgba(28,24,22,0.92)') => {
-        x.save(); x.fillStyle = 'rgba(230,224,214,0.35)'; x.translate(2, 3); draw(); x.restore();
-        x.save(); x.fillStyle = fill; draw(); x.restore();
+    const tex = drawTexture(1280, 1820, (x) => {
+      x.scale(2, 2); // the layout below is in 640 x 910 units, drawn at twice the resolution
+      const w = 640, hh = 910;
+      const silk = (c, y0, y1) => {
+        x.fillStyle = c; x.fillRect(0, y0, w, y1 - y0);
+        for (let k = 0; k < (y1 - y0) * 3; k++) { const l = rand(-14, 14); x.fillStyle = `rgba(${128 + l},${120 + l},${104 + l},0.06)`; x.fillRect(0, y0 + rand(0, y1 - y0), w, 1); }
       };
-      x.strokeStyle = 'rgba(40,36,32,0.7)'; x.lineWidth = 5; x.strokeRect(34, 34, w - 68, hh - 68);
-      x.font = '900 300px "Noto Serif JP", serif'; x.textAlign = 'right'; x.textBaseline = 'middle';
-      carve(() => x.fillText(ev.jp.slice(0, 2), w - 60, hh / 2 + 20), 'rgba(40,34,30,0.35)');
-      x.textAlign = 'left'; x.textBaseline = 'alphabetic';
-      x.font = '900 190px Cinzel, serif';
-      carve(() => x.fillText(ev.age, 80, 260), '#8e1b1e');
-      x.font = '600 34px Inter, sans-serif';
-      carve(() => x.fillText(ev.age === '∞' ? 'BEYOND DEATH' : `AGE ${ev.age}`, 86, 320), '#d9c9a0');
-      x.font = '700 64px Cinzel, serif';
-      carve(() => wrap(x, ev.title.toUpperCase(), 80, 430, w - 160, 70), '#e6d6ae');
-      x.font = '500 28px Inter, sans-serif';
-      carve(() => x.fillText(`— ${String(i + 1).padStart(2, '0')} / ${String(TIMELINE.length).padStart(2, '0')}`, 80, hh - 80), 'rgba(28,24,22,0.7)');
+      silk('#3a342c', 0, hh);          // the side silk (hashira), under everything
+      silk('#56483a', 0, 118);         // ten: the top band
+      silk('#56483a', hh - 138, hh);   // chi: the bottom band
+      // futai: two narrow strips hanging from the top rod, with a thin line of brocade
+      for (const fx of [w * 0.36, w * 0.64]) { x.fillStyle = '#3a342c'; x.fillRect(fx - 11, 0, 22, 150); x.fillStyle = 'rgba(190,160,90,0.55)'; x.fillRect(fx - 11, 0, 22, 4); x.fillRect(fx - 11, 146, 22, 4); }
+      // the paper panel with its ichimonji: gold brocade strips above and below
+      const px = 64, py = 150, pw = w - 128, ph = hh - 310;
+      const brocade = (y, hgt) => {
+        x.fillStyle = '#8a6a36'; x.fillRect(px, y, pw, hgt);
+        for (let k = 0; k < pw; k += 6) { x.fillStyle = k % 12 ? 'rgba(230,200,120,0.35)' : 'rgba(60,40,20,0.35)'; x.fillRect(px + k, y, 3, hgt); }
+      };
+      brocade(py - 20, 20);
+      brocade(py + ph, 16);
+      x.fillStyle = '#e6dcc2'; x.fillRect(px, py, pw, ph);
+      // washi: long fibres, a few foxing spots, yellowing toward the edges
+      for (let k = 0; k < 3200; k++) { x.strokeStyle = `rgba(160,140,100,${rand(0.04, 0.12)})`; x.lineWidth = rand(0.4, 1.2); const fx = px + rand(0, pw), fy = py + rand(0, ph); x.beginPath(); x.moveTo(fx, fy); x.lineTo(fx + rand(-12, 12), fy + rand(-4, 4)); x.stroke(); }
+      for (let k = 0; k < 14; k++) { const fx = px + rand(10, pw - 10), fy = py + rand(10, ph - 10), r = rand(2, 7); const g = x.createRadialGradient(fx, fy, 0, fx, fy, r); g.addColorStop(0, 'rgba(150,110,60,0.3)'); g.addColorStop(1, 'rgba(150,110,60,0)'); x.fillStyle = g; x.fillRect(fx - r, fy - r, r * 2, r * 2); }
+      const edge = x.createRadialGradient(w / 2, py + ph / 2, pw * 0.35, w / 2, py + ph / 2, pw * 0.9);
+      edge.addColorStop(0, 'rgba(140,110,60,0)'); edge.addColorStop(1, 'rgba(140,110,60,0.28)');
+      x.fillStyle = edge; x.fillRect(px, py, pw, ph);
+      // the kanji: sized to fit the space (one column, or two for longer words), ink with dry-brush grain
+      const chars = [...ev.jp];
+      const cols = chars.length > 4 ? 2 : 1;
+      const perCol = Math.ceil(chars.length / cols);
+      const areaTop = py + 40, areaBottom = py + ph - 150;
+      const size = Math.min(150, (areaBottom - areaTop) / perCol * 0.94, (pw - 60) / cols * 0.8);
+      x.save();
+      x.font = `900 ${size}px "Noto Serif JP", serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillStyle = 'rgba(20,16,12,0.92)'; x.shadowColor = 'rgba(20,16,12,0.35)'; x.shadowBlur = 2; // a little bleed into the fibres
+      const colX = (c) => (cols === 1 ? w / 2 : w / 2 + (c === 0 ? 1 : -1) * size * 0.62); // read right to left
+      chars.forEach((ch, k) => {
+        const c = Math.floor(k / perCol), r = k % perCol;
+        const colLen = c === cols - 1 ? chars.length - perCol * c : perCol;
+        const y0 = areaTop + ((areaBottom - areaTop) - colLen * size * 1.02) / 2 + size * 0.51;
+        x.fillText(ch, colX(c), y0 + r * size * 1.02);
+      });
+      x.restore();
+      // dry brush: fleck the ink so it isn't a flat print
+      x.save(); x.globalCompositeOperation = 'destination-out';
+      for (let k = 0; k < 500; k++) { x.fillStyle = `rgba(0,0,0,${rand(0.08, 0.22)})`; x.fillRect(px + rand(20, pw - 20), areaTop + rand(0, areaBottom - areaTop), rand(0.5, 1.5), 0.5); }
+      x.restore();
+      x.save(); x.globalCompositeOperation = 'destination-over'; x.fillStyle = '#e6dcc2'; x.fillRect(px, py, pw, ph); x.restore();
+      // the seal: carved, uneven edges, the age cut in white
+      const sx = px + pw - 104, sy = py + 26, ss = 78;
+      x.save(); x.translate(sx + ss / 2, sy + ss / 2); x.rotate(rand(-0.04, 0.04));
+      x.fillStyle = '#9e1f20'; x.beginPath();
+      x.moveTo(-ss / 2 + rand(0, 3), -ss / 2 + rand(0, 3)); x.lineTo(ss / 2 - rand(0, 3), -ss / 2 + rand(0, 3)); x.lineTo(ss / 2 - rand(0, 3), ss / 2 - rand(0, 3)); x.lineTo(-ss / 2 + rand(0, 3), ss / 2 - rand(0, 3)); x.closePath(); x.fill();
+      x.fillStyle = '#efe2c8'; x.font = `900 ${ev.age === '∞' ? 46 : 40}px Cinzel, serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillText(ev.age, 0, 3);
+      x.globalCompositeOperation = 'destination-out';
+      for (let k = 0; k < 90; k++) { x.fillStyle = 'rgba(0,0,0,0.5)'; x.fillRect(rand(-ss / 2, ss / 2), rand(-ss / 2, ss / 2), rand(1, 3), rand(1, 3)); }
+      x.restore();
+      // title and age, small, at the foot of the paper
+      x.textAlign = 'center'; x.textBaseline = 'middle';
+      x.fillStyle = 'rgba(28,20,14,0.96)'; x.font = '700 36px Cinzel, serif';
+      wrap(x, ev.title.toUpperCase(), w / 2, py + ph - 104, pw - 50, 42);
+      x.font = '700 24px Inter, sans-serif'; x.fillStyle = 'rgba(90,58,34,0.95)';
+      x.fillText(ev.age === '∞' ? 'BEYOND DEATH' : `AGE ${ev.age}`, w / 2, py + ph - 30);
+      x.fillStyle = 'rgba(220,210,190,0.6)'; x.font = '500 18px Inter, sans-serif';
+      x.fillText(`${String(i + 1).padStart(2, '0')} / ${String(TIMELINE.length).padStart(2, '0')}`, w / 2, hh - 60);
     });
+    tex.anisotropy = this.app.renderer.capabilities.getMaxAnisotropy();
+    return tex;
+  }
+
+  /** Paper fibres alone, for the sheet's relief (so the lettering stays flat and sharp). */
+  static fibreTexture() {
+    if (Chronicle._fibre) return Chronicle._fibre;
+    Chronicle._fibre = drawTexture(512, 728, (x, w, hh) => {
+      x.fillStyle = '#808080'; x.fillRect(0, 0, w, hh);
+      for (let k = 0; k < 4000; k++) { x.strokeStyle = `rgba(${rand(0, 1) < 0.5 ? '255,255,255' : '0,0,0'},${rand(0.05, 0.15)})`; x.lineWidth = rand(0.4, 1.2); const fx = rand(0, w), fy = rand(0, hh); x.beginPath(); x.moveTo(fx, fy); x.lineTo(fx + rand(-12, 12), fy + rand(-4, 4)); x.stroke(); }
+    }, false);
+    return Chronicle._fibre;
+  }
+
+  /**
+   * The largest part of the screen the scroll can fill without anything over it: between the title block
+   * and the card, above the progress line and buttons. Measured from the page itself, a few times a second.
+   */
+  _freeRegion(t) {
+    if (this._region && t - this._regionT < 0.25) return this._region;
+    this._regionT = t;
+    const W = this.app.width, H = this.app.height;
+    // whether a panel is shown is read from its state, not its opacity (which is mid-fade half the time)
+    const rect = (el) => { if (!el) return null; const r = el.getBoundingClientRect(); return r.width && r.height ? r : null; };
+    const intro = this.ui.querySelector('.intro');
+    const introR = intro && !intro.classList.contains('tucked') ? rect(intro) : null;
+    const cardR = !this.card.classList.contains('hidden') ? rect(this.card) : null;
+    const lows = [...this.ui.querySelectorAll('.tl-progress, .controls')].map(rect).filter(Boolean);
+    const top = 64; // under the top bar
+    const bottom = Math.min(H - 8, ...lows.map((r) => r.top - 12));
+    const cands = [];
+    // every candidate stays clear of the title block and the card by construction
+    const introRight = introR ? introR.right + 16 : 16;
+    const overlapsIntro = (y0, y1) => introR && y0 < introR.bottom && y1 > introR.top;
+    const leftFor = (y0, y1) => (overlapsIntro(y0, y1) ? introRight : 16);
+    if (cardR) {
+      // a column beside the card, full height
+      cands.push({ x: leftFor(top, bottom), y: top, w: cardR.left - 16 - leftFor(top, bottom), h: bottom - top });
+      // the area above the card
+      const aboveB = cardR.top - 12;
+      cands.push({ x: leftFor(top, aboveB), y: top, w: W - 16 - leftFor(top, aboveB), h: aboveB - top });
+      // a full-width band between the title block and the card
+      if (introR) cands.push({ x: 16, y: introR.bottom + 8, w: W - 32, h: aboveB - introR.bottom - 8 });
+    } else {
+      cands.push({ x: leftFor(top, bottom), y: top, w: W - 16 - leftFor(top, bottom), h: bottom - top });
+      if (introR) cands.push({ x: 16, y: introR.bottom + 8, w: W - 32, h: bottom - introR.bottom - 8 });
+    }
+    const fit = (c) => (c.w > 40 && c.h > 40 ? Math.min(c.w / 3.0, c.h / 4.1) : 0);
+    cands.sort((a2, b2) => fit(b2) - fit(a2));
+    this._region = fit(cands[0]) > 0 ? cands[0] : { x: 0, y: top, w: W, h: bottom - top };
+    return this._region;
   }
 
   _buildUI() {
@@ -421,22 +597,40 @@ export class Chronicle extends Chapter {
     const sway = this.app.isTouch ? 0 : this.app.pointer.ndc.x * 0.5;
     const focusSlab = this.slabs[this.activeIndex < 0 ? 0 : this.activeIndex];
     const focus = focusSlab.position;
-    const portrait = this.app.width / this.app.height < 0.9;
-    if (portrait) {
-      // a narrow screen can't see the stele from the path's edge: stand back in front of it, square on,
-      // far enough that the whole slab fits the clear band between the title and the card
-      const normal = V_TMP.set(0, 0, 1).applyQuaternion(focusSlab.quaternion);
-      const back = 8.6 * Math.max(1, 0.5 / (this.app.width / this.app.height));
-      const want = focus.clone().addScaledVector(normal, back).add(new THREE.Vector3(0, 0.7, 0));
-      this.camPosP = (this.camPosP || want.clone()).lerp(want, 1 - Math.exp(-2.6 * dt));
-      this.camera.position.copy(this.camPosP);
-      // aim below the slab so it sits in the upper part of the screen
-      const aim = focus.clone().add(new THREE.Vector3(0, -0.75, 0));
-      this.lookAtV = (this.lookAtV || aim.clone()).lerp(aim, 1 - Math.exp(-3 * dt));
-    } else {
-      this.camPosP = null;
-      this.camera.position.set(pos.x + sway, pos.y + 0.9, pos.z + 1.5);
-      this.lookAtV = (this.lookAtV || ahead.clone()).lerp(ahead.clone().lerp(focus, 0.6), 1 - Math.exp(-3 * dt));
+    // stand square-on to the scroll being read, a little to the path side, and frame the whole stand in
+    // the part of the screen nothing covers (not under the title, the card, the progress line or buttons)
+    const W = this.app.width, H = this.app.height;
+    const region = this._freeRegion(t);
+    const vfov = THREE.MathUtils.degToRad(this.camera.fov);
+    const standW = 3.0, standH = 4.1; // world size of scroll + stand, with a little air
+    const ppu = Math.min((region.w * 0.92) / standW, (region.h * 0.92) / standH); // pixels per world unit
+    const dist = H / (ppu * 2 * Math.tan(vfov / 2));
+    const normal = V_TMP.set(0, 0, 1).applyQuaternion(focusSlab.userData.baseQ || focusSlab.quaternion);
+    const side = focusSlab.userData.index % 2 ? 1 : -1;
+    const toPath = new THREE.Vector3(-side, 0, 0).applyQuaternion(focusSlab.userData.baseQ || focusSlab.quaternion);
+    const centre = focus.clone().setY(GROUND_Y + 1.95);
+    const want = centre.clone().addScaledVector(normal, dist * 0.97).addScaledVector(toPath, dist * 0.22);
+    want.x += sway * 0.3;
+    this.camPosP = (this.camPosP || want.clone()).lerp(want, 1 - Math.exp(-2.4 * dt));
+    this.camera.position.copy(this.camPosP);
+    this.lookAtV = (this.lookAtV || centre.clone()).lerp(centre, 1 - Math.exp(-3 * dt));
+    // shift the picture so the scroll sits at the centre of that free region
+    const ox = W / 2 - (region.x + region.w / 2), oy = H / 2 - (region.y + region.h / 2);
+    this.viewOff = this.viewOff || { x: ox, y: oy };
+    this.viewOff.x = damp(this.viewOff.x, ox, 4, dt);
+    this.viewOff.y = damp(this.viewOff.y, oy, 4, dt);
+    this.camera.setViewOffset(W, H, this.viewOff.x, this.viewOff.y, W, H);
+    // standing back on a narrow screen can put another scroll between you and the one you're reading:
+    // any stand in that line of sight steps out of the way until the view is clear again
+    const seg = centre.clone().sub(this.camera.position), segLen = seg.length();
+    seg.divideScalar(segLen);
+    for (const sl of this.slabs) {
+      if (sl === focusSlab) { sl.visible = sl.userData.stand.visible = true; continue; }
+      const rel = sl.position.clone().sub(this.camera.position);
+      const along = rel.dot(seg);
+      const off = rel.addScaledVector(seg, -along).length();
+      const blocks = along > 0.3 && along < segLen - 0.8 && off < 2.1;
+      sl.visible = sl.userData.stand.visible = !blocks;
     }
     this.camera.lookAt(this.lookAtV);
     // on a phone, tilting turns your head: look along the grove, up at the bamboo, down at the stones
@@ -454,13 +648,42 @@ export class Chronicle extends Chapter {
     this.sky.userData.uniforms.uTime.value = t;
     this.moon.position.copy(this.camera.position).add(this.moonOffset);
     this.moon.lookAt(this.camera.position);
+    const swayQ = new THREE.Quaternion(), ax = new THREE.Vector3(1, 0, 0), down = new THREE.Vector3();
+    this.slabs.forEach((sl) => {
+      // a slow swing from the top rod, with a slower drift on top of it, as the night air moves
+      const ang = Math.sin(t * 0.9 + sl.userData.ph) * 0.02 + Math.sin(t * 0.37 + sl.userData.ph * 2) * 0.012;
+      swayQ.setFromAxisAngle(ax, ang);
+      sl.quaternion.copy(sl.userData.baseQ).multiply(swayQ);
+      down.set(0, -sl.userData.SH / 2, 0).applyQuaternion(sl.quaternion);
+      sl.position.copy(sl.userData.pivot).add(down);
+    });
+    if (this.watchCrows) {
+      const d = this._crowDummy || (this._crowDummy = new THREE.Object3D());
+      this.crowSpots.forEach((c, k) => {
+        c.next -= dt;
+        if (c.next < 0) { c.yaw += rand(-1.2, 1.2); c.next = rand(2, 6); }
+        c.cur = damp(c.cur ?? c.yaw, c.yaw, 5, dt);
+        d.position.copy(c.p);
+        d.rotation.set(0, c.cur, 0);
+        d.updateMatrix();
+        this.watchCrows.setMatrixAt(k, d.matrix);
+      });
+      this.watchCrows.instanceMatrix.needsUpdate = true;
+    }
     this.slabs.forEach((sl, i) => {
       const on = i === nearest;
       // the stele being read is lit by its lantern; the rest stand in moonlight
-      sl.userData.face.emissiveIntensity = damp(sl.userData.face.emissiveIntensity, on ? 0.3 : 0.04, 4, dt);
+      sl.userData.face.emissiveIntensity = damp(sl.userData.face.emissiveIntensity, on ? 0.12 : 0.03, 4, dt);
       sl.userData.glow.material.opacity = damp(sl.userData.glow.material.opacity, on ? 0.55 : 0.18, 4, dt);
     });
     const act = this.slabs[nearest];
+    {
+      const n = V_TMP.set(0, 0, 1).applyQuaternion(act.userData.baseQ);
+      const want = act.userData.pivot.clone().addScaledVector(n, 2.6).add(new THREE.Vector3(0, 0.9, 0));
+      this.readLight.position.lerp(want, 1 - Math.exp(-3 * dt));
+      this.readLight.target.position.lerp(act.position, 1 - Math.exp(-3 * dt));
+      this.readLight.intensity = damp(this.readLight.intensity, 5.5, 2, dt);
+    }
     const lp = act.userData.lantern.position;
     this.lamp.position.set(lp.x, lp.y + 1.3, lp.z).lerp(act.position, 0.35);
     this.lamp.intensity = damp(this.lamp.intensity, 10 + Math.sin(t * 9) * 0.6 + Math.sin(t * 23) * 0.4, 5, dt);

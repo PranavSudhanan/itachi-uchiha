@@ -541,7 +541,9 @@ export class App {
     p.frames = 0;
     if (p.cooldown > 0) { p.cooldown--; return; }
     let next = this.dpr;
-    if (avg > 1 / 50) next = Math.max(this.minDpr, this.dpr - 0.15);
+    // a chapter with text to read can ask for a higher floor (see Chapter.minDpr)
+    const floor = Math.min(this.maxDpr, Math.max(this.minDpr, this.current?.minDpr || 0));
+    if (avg > 1 / 50) next = Math.max(floor, this.dpr - 0.15);
     else if (avg < 1 / 58 && this.dpr < this.maxDpr) next = Math.min(this.maxDpr, this.dpr + 0.1);
     if (Math.abs(next - this.dpr) > 0.01) {
       this.dpr = next;
