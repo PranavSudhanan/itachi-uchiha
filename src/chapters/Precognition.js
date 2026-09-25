@@ -227,11 +227,13 @@ export class Precognition extends Chapter {
     this.app.sfx.sharingan();
     voice.say('sharingan', { cooldown: 20 });
     this.app.flash(0.3, 0xff2030);
+    this.app.sfx.setMood('battle'); // the ambush has its own music while it lasts
   }
 
   gameOver() {
     this.state = 'over';
     this.sharingan = false;
+    this.app.sfx.setMood(this.mood);
     const record = this.score > this.best;
     if (record) {
       this.best = this.score;
@@ -407,6 +409,7 @@ export class Precognition extends Chapter {
   exit() {
     this.spaceHeld = false;
     if (this.state === 'playing') {
+      this.app.sfx.setMood(this.mood);
       this.items.forEach((it) => this._remove(it));
       this.items = [];
       this.state = 'idle';

@@ -75,7 +75,7 @@ async function boot() {
     if (app.isTouch) app.tilt.request(); // iOS only asks from inside a tap
     app.sfx.unlock();
     voice.preload();
-    app.sfx.setMood(app.current.mood);
+    app.sfx.setScene(app.current.id, app.current.mood);
     loader.classList.add('done');
     if (app.chapters[first].id === 'prologue') setTimeout(() => app.toast('<b>写輪眼</b> — press and <b>hold</b> the eye to awaken it.', 3200), 1200);
   }, { once: true });

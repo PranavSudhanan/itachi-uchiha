@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { FXAAPass } from 'three/addons/postprocessing/FXAAPass.js';
 import { createCinematicPass } from './CinematicPass.js';
 import { sfx } from './Audio.js';
 import { shared, damp, h } from './utils.js';
@@ -45,9 +46,12 @@ export class App {
     this.renderer.shadowMap.enabled = !this.low;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
+    // 4x MSAA where it's affordable; on high-DPI screens and low-end devices it's off, and a cheap FXAA
+    // pass at the end smooths the edges instead, so no device is left with jagged silhouettes
+    this.msaa = !this.low && this.dpr < 1.5 ? 4 : 0;
     const rt = new THREE.WebGLRenderTarget(this.width * this.dpr, this.height * this.dpr, {
       type: THREE.HalfFloatType,
-      samples: !this.low && this.dpr < 1.5 ? 4 : 0,
+      samples: this.msaa,
     });
     this.composer = new EffectComposer(this.renderer, rt);
     this.renderPass = new RenderPass(new THREE.Scene(), new THREE.PerspectiveCamera());
@@ -61,6 +65,7 @@ export class App {
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(this.cinePass);
     this.composer.addPass(new OutputPass());
+    if (!this.msaa) this.composer.addPass(new FXAAPass()); // runs on the final, tone-mapped image
     this.flashAmt = 0;
     this._tint = new THREE.Color();
 
@@ -216,7 +221,7 @@ export class App {
     this.bloomPass.radius = ch.bloom.radius;
     this.bloomPass.threshold = ch.bloom.threshold;
     this.setHover(false);
-    this.sfx.setMood(ch.mood);
+    this.sfx.setScene(ch.id, ch.mood);
     this._syncNav();
     this._prebuildNext();
   }
