@@ -20,18 +20,29 @@ function noise3DTexture() {
   if (_noise3D) return _noise3D;
   const N = 64, P = 8, C = N / P; // 8 lattice cells across the texture, so it tiles
   const lat = new Float32Array(P * P * P).map(() => Math.random());
-  const L = (x, y, z) => lat[((z % P) * P + (y % P)) * P + (x % P)];
-  const sm = (t) => t * t * (3 - 2 * t);
+  // per-axis lattice cell and smoothed weight, computed once rather than for every voxel
+  const cell0 = new Int32Array(N), cell1 = new Int32Array(N), wt = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const f = i / C, c = Math.floor(f), t = f - c;
+    cell0[i] = c % P; cell1[i] = (c + 1) % P; wt[i] = t * t * (3 - 2 * t);
+  }
   const data = new Uint8Array(N * N * N);
-  for (let z = 0; z < N; z++) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
-    const fx = x / C, fy = y / C, fz = z / C;
-    const ix = Math.floor(fx), iy = Math.floor(fy), iz = Math.floor(fz);
-    const u = sm(fx - ix), v = sm(fy - iy), w = sm(fz - iz);
-    const l = (a, b, t) => a + (b - a) * t;
-    const val = l(
-      l(l(L(ix, iy, iz), L(ix + 1, iy, iz), u), l(L(ix, iy + 1, iz), L(ix + 1, iy + 1, iz), u), v),
-      l(l(L(ix, iy, iz + 1), L(ix + 1, iy, iz + 1), u), l(L(ix, iy + 1, iz + 1), L(ix + 1, iy + 1, iz + 1), u), v), w);
-    data[(z * N + y) * N + x] = Math.round(val * 255);
+  let o = 0;
+  for (let z = 0; z < N; z++) {
+    const z0 = cell0[z] * P * P, z1 = cell1[z] * P * P, w = wt[z];
+    for (let y = 0; y < N; y++) {
+      const y0 = cell0[y] * P, y1 = cell1[y] * P, v = wt[y];
+      const r00 = z0 + y0, r10 = z0 + y1, r01 = z1 + y0, r11 = z1 + y1;
+      for (let x = 0; x < N; x++) {
+        const x0 = cell0[x], x1 = cell1[x], u = wt[x];
+        const a = lat[r00 + x0] + (lat[r00 + x1] - lat[r00 + x0]) * u;
+        const b = lat[r10 + x0] + (lat[r10 + x1] - lat[r10 + x0]) * u;
+        const c = lat[r01 + x0] + (lat[r01 + x1] - lat[r01 + x0]) * u;
+        const d = lat[r11 + x0] + (lat[r11 + x1] - lat[r11 + x0]) * u;
+        const ab = a + (b - a) * v, cd = c + (d - c) * v;
+        data[o++] = (ab + (cd - ab) * w) * 255 + 0.5;
+      }
+    }
   }
   const t = new THREE.Data3DTexture(data, N, N, N);
   t.format = THREE.RedFormat;

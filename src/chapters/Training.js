@@ -6,6 +6,7 @@ import { createGrass, createForest, emitFireflies, barkTexture, createBoulder } 
 import { nightSky, bloodMoon } from '../objects/Dusk.js';
 import { shurikenGeometry } from '../objects/Weapons.js';
 import { JutsuDirector } from './JutsuDirector.js';
+import { preloadItachi } from '../objects/ItachiGLB.js';
 import { drawTexture, rand, damp, TAU, h, NOISE_GLSL, shared, glowTexture } from '../core/utils.js';
 import { HAND_SIGNS, JUTSU } from '../data/content.js';
 
@@ -61,6 +62,8 @@ export class Training extends Chapter {
     this.shake = 0;
     this.learned = new Set();
   }
+
+  load() { return preloadItachi(); }
 
   build() {
     const s = this.scene;

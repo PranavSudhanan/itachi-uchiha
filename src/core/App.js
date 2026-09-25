@@ -38,6 +38,9 @@ export class App {
     this.maxDpr = Math.min(devicePixelRatio, this.low ? 1.25 : 1.5);
     this.minDpr = this.low ? 0.6 : 0.75;
     this.dpr = this.maxDpr;
+    // checking each new shader for errors makes the page wait for the GPU to finish compiling it; in a
+    // production build the shaders are known good, so compilation can run in the background instead
+    this.renderer.debug.checkShaderErrors = import.meta.env.DEV;
     this.renderer.setPixelRatio(this.dpr);
     this.renderer.setSize(this.width, this.height, false);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -46,9 +49,9 @@ export class App {
     this.renderer.shadowMap.enabled = !this.low;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
-    // 4x MSAA where it's affordable; on high-DPI screens and low-end devices it's off, and a cheap FXAA
-    // pass at the end smooths the edges instead, so no device is left with jagged silhouettes
-    this.msaa = !this.low && this.dpr < 1.5 ? 4 : 0;
+    // No MSAA: on a floating-point target it multiplies the cost of drawing the scene (measured 3–6x on
+    // integrated GPUs), for edges a cheap FXAA pass at the end smooths almost as well
+    this.msaa = 0;
     const rt = new THREE.WebGLRenderTarget(this.width * this.dpr, this.height * this.dpr, {
       type: THREE.HalfFloatType,
       samples: this.msaa,
@@ -59,13 +62,14 @@ export class App {
     // bloom is a blur — run it at half the composer's resolution (quarter the pixels)
     const bloomSetSize = this.bloomPass.setSize.bind(this.bloomPass);
     this.bloomPass.setSize = (w, hh) => bloomSetSize(Math.max(2, Math.round(w * 0.5)), Math.max(2, Math.round(hh * 0.5)));
-    this.perf = { acc: 0, frames: 0, cooldown: 2 };
+    this.perf = { acc: 0, frames: 0, cooldown: 2, bad: 0, good: 0, ceiling: this.maxDpr, ceilingUntil: 0 };
     this.cinePass = createCinematicPass();
     this.composer.addPass(this.renderPass);
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(this.cinePass);
     this.composer.addPass(new OutputPass());
     if (!this.msaa) this.composer.addPass(new FXAAPass()); // runs on the final, tone-mapped image
+    this.passesCompiled = this._warmPasses();
     this.flashAmt = 0;
     this._tint = new THREE.Color();
 
@@ -148,6 +152,13 @@ export class App {
     if (location.hash.slice(1) !== id) history.replaceState(null, '', `#${id}`);
   }
 
+  /** Fetches whatever the chapter needs before it can build (models); resolves at once when there is nothing. */
+  prepare(ch) {
+    if (ch.built) return Promise.resolve();
+    if (!ch._loading) ch._loading = Promise.resolve(ch.load()).catch(() => null);
+    return ch._loading;
+  }
+
   ensureBuilt(ch) {
     if (ch.built) return;
     ch.build();
@@ -181,22 +192,112 @@ export class App {
    * Compiles every shader a chapter will ever need — including hidden effects (fireballs, crow bursts,
    * Itachi before he appears) — so nothing stalls the first time it shows up.
    * Uses the non-blocking compileAsync (KHR_parallel_shader_compile) when available.
+   * A chapter whose set of lights changes as you use it (a room with its own lamps) lists those lighting
+   * states in `lightStates` (functions that apply a state and return its undo), and each is compiled too.
    */
   _precompile(ch) {
-    const hidden = [];
-    ch.scene.traverse((o) => { if (!o.visible) { hidden.push(o); o.visible = true; } });
-    const restore = () => hidden.forEach((o) => { o.visible = false; });
-    try {
-      if (this.renderer.compileAsync) {
-        const p = this.renderer.compileAsync(ch.scene, ch.camera);
-        restore(); // programs are already queued; visibility can go back immediately
-        this._compiling = p.catch(() => {});
-      } else {
-        this.renderer.compile(ch.scene, ch.camera);
-        restore();
+    const jobs = [];
+    for (const state of [null, ...(ch.lightStates || [])]) {
+      const undo = state?.();
+      try { jobs.push(this._compileScene(ch.scene, ch.camera)); } finally { undo?.(); }
+    }
+    // until they are ready the chapter is not drawn: drawing would wait on the compiler and freeze the page
+    ch.compiling = true;
+    ch._compiled = Promise.all(jobs).then(() => {
+      // shadow shaders are only made when a shadow is first drawn: draw each extra lighting state once
+      // now (behind the veil), so its lamps' shadows are ready too
+      for (const state of ch.lightStates || []) {
+        const undo = state();
+        const prev = this.renderer.getRenderTarget();
+        try {
+          this.renderer.setRenderTarget(this.composer.readBuffer);
+          this.renderer.render(ch.scene, ch.camera);
+        } catch (_) { /* drawn on first use instead */ } finally {
+          this.renderer.setRenderTarget(prev);
+          undo();
+        }
       }
-    } catch (e) {
-      restore();
+      ch.compiling = false;
+    });
+  }
+
+  _compileScene(scene, camera) {
+    // Lights are left as they are: the number of lights is compiled into every shader, so an extra light
+    // shown here would build variants the scene never uses. Lights inside hidden groups stay off too.
+    const lit = new Set();
+    scene.traverseVisible((o) => { if (o.isLight) lit.add(o); });
+    const hidden = [], darkened = [];
+    scene.traverse((o) => { if (!o.visible && !o.isLight) { hidden.push(o); o.visible = true; } });
+    scene.traverse((o) => { if (o.isLight && o.visible && !lit.has(o)) { darkened.push(o); o.visible = false; } });
+    // Shader variants depend on where they draw: the scene draws into the composer's buffer (linear, no
+    // tone mapping), not to the screen, so compile with that buffer bound or the wrong variants get built
+    // and the real ones compile, blocking, on the first frame.
+    const prevTarget = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(this.composer.readBuffer);
+    try {
+      if (this.renderer.compileAsync) return this.renderer.compileAsync(scene, camera).catch(() => {});
+      this.renderer.compile(scene, camera);
+    } catch (_) { /* compiled on first use instead */ } finally {
+      // the programs are already queued; visibility can go back at once
+      this.renderer.setRenderTarget(prevTarget);
+      hidden.forEach((o) => { o.visible = false; });
+      darkened.forEach((o) => { o.visible = true; });
+    }
+    return Promise.resolve();
+  }
+
+  /**
+   * Compiles the post-processing shaders (bloom, grade, output, edge smoothing) in parallel up front,
+   * instead of one after another, blocking, on the first frames. Each is built for both kinds of target
+   * (an off-screen buffer and the screen), since passes draw to either.
+   */
+  _warmPasses() {
+    if (!this.renderer.compileAsync) return Promise.resolve();
+    // the output pass picks its tone-mapping and colour-space defines on its first render: let it, without drawing
+    for (const pass of this.composer.passes) {
+      const quad = pass._fsQuad;
+      if (!(pass instanceof OutputPass) || !quad) continue;
+      const draw = quad.render;
+      quad.render = () => {};
+      try { pass.render(this.renderer, this.composer.writeBuffer, this.composer.readBuffer); } finally { quad.render = draw; }
+    }
+    const mats = new Set();
+    const collect = (v) => {
+      if (!v) return;
+      if (v.isMaterial) mats.add(v);
+      else if (Array.isArray(v)) v.forEach(collect);
+    };
+    for (const pass of this.composer.passes) {
+      for (const v of Object.values(pass)) collect(v);
+      collect(pass.fsQuad?.material);
+    }
+    // the same attributes as the passes' full-screen triangle (no normals: they are part of the shader variant)
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute([-1, 3, 0, -1, -1, 0, 3, -1, 0], 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 2, 0, 0, 2, 0], 2));
+    const scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+    for (const m of mats) { const q = new THREE.Mesh(geo, m); q.frustumCulled = false; scene.add(q); }
+    const prev = this.renderer.getRenderTarget();
+    const jobs = [];
+    try {
+      for (const target of [this.composer.readBuffer, null]) {
+        this.renderer.setRenderTarget(target);
+        jobs.push(this.renderer.compileAsync(scene, cam).catch(() => {}));
+      }
+    } catch (_) { /* compiled on first use instead */ }
+    this.renderer.setRenderTarget(prev);
+    return Promise.all(jobs).then(() => geo.dispose());
+  }
+
+  /** Draws a built chapter once off-screen, so its textures and shadow maps are on the GPU before it shows. */
+  warm(ch) {
+    if (!ch.built || ch.compiling) return;
+    const prev = this.renderer.getRenderTarget();
+    try {
+      this.renderer.setRenderTarget(this.composer.readBuffer);
+      this.renderer.render(ch.scene, ch.camera);
+    } catch (_) { /* drawn on first use instead */ } finally {
+      this.renderer.setRenderTarget(prev);
     }
   }
 
@@ -244,17 +345,8 @@ export class App {
     this.setHover(false);
     this.sfx.setScene(ch.id, ch.mood);
     this._syncNav();
-    this._prebuildNext();
-  }
-
-  /** Builds only the neighbouring chapters in idle time, so navigation is instant without loading everything up front. */
-  _prebuildNext() {
-    const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 600));
-    const n = this.chapters.length;
-    const wanted = [this.index + 1, this.index - 1].map((i) => this.chapters[(i + n) % n]).filter((c) => !c.built);
-    wanted.forEach((ch, k) => idle(() => {
-      if (!ch.built && !this.busy) this.ensureBuilt(ch);
-    }, { timeout: 3000 + k * 1500 }));
+    // a new scene has its own cost: measure afresh before changing the resolution
+    Object.assign(this.perf, { acc: 0, frames: 0, cooldown: 2, bad: 0, good: 0, ceilingUntil: 0 });
   }
 
   start(i = 0) {
@@ -299,7 +391,10 @@ export class App {
       ov.style.transform = '';
     }
     ov.classList.add('show');
+    // the next chapter's models download while the veil closes
+    const ready = this.prepare(this.chapters[i]);
     await wait(this.reducedMotion ? 50 : wipe ? 420 : 580);
+    await ready;
     const old = this.current;
     old.active = false;
     old.exit();
@@ -310,8 +405,7 @@ export class App {
     this.trail.length = 0;
     this._activate(i);
     // hold the veil until the new scene's shaders are ready, so it doesn't stutter as it is revealed
-    if (this._compiling) await Promise.race([this._compiling, wait(1500)]);
-    this._compiling = null;
+    if (this.current.compiling) await Promise.race([this.current._compiled, wait(5000)]);
     await frame();
     await frame();
     if (wipe) ov.style.transform = `translateX(${dir > 0 ? -100 : 100}%)`;
@@ -532,7 +626,7 @@ export class App {
   /** Keeps the frame rate high: lowers the render resolution when frames get slow, raises it when there is headroom. */
   _adapt(frameTime) {
     const p = this.perf;
-    if (document.hidden || this.busy || frameTime > 0.25) return;
+    if (document.hidden || this.busy || this.current?.compiling || frameTime > 0.25) return;
     p.acc += frameTime;
     p.frames++;
     if (p.acc < 1) return;
@@ -540,12 +634,27 @@ export class App {
     p.acc = 0;
     p.frames = 0;
     if (p.cooldown > 0) { p.cooldown--; return; }
+    // Every change reallocates the render targets (a hitch of its own), so it only changes on a sustained
+    // trend: two slow seconds in a row to step down, four fast ones to step up. After a step down the
+    // resolution that was too slow is not tried again for a while, so it never see-saws.
+    if (avg > 1 / 50) { p.bad++; p.good = 0; } else if (avg < 1 / 58) { p.good++; p.bad = 0; } else { p.bad = p.good = 0; }
     let next = this.dpr;
     // a chapter with text to read can ask for a higher floor (see Chapter.minDpr)
     const floor = Math.min(this.maxDpr, Math.max(this.minDpr, this.current?.minDpr || 0));
-    if (avg > 1 / 50) next = Math.max(floor, this.dpr - 0.15);
-    else if (avg < 1 / 58 && this.dpr < this.maxDpr) next = Math.min(this.maxDpr, this.dpr + 0.1);
+    const now = performance.now();
+    // far too slow (under 30 fps) acts after one second; the step is sized from the frame time (the cost
+    // goes with the pixel count, the square of the ratio), so it lands near 60 fps in one move, not five
+    if ((p.bad >= 2 || (p.bad >= 1 && avg > 1 / 30)) && this.dpr > floor + 0.01) {
+      const k = Math.min(0.9, Math.max(0.6, Math.sqrt((1 / 55) / avg)));
+      next = Math.max(floor, this.dpr * k);
+      p.ceiling = next;
+      p.ceilingUntil = now + 30000;
+    } else if (p.good >= 4 && this.dpr < this.maxDpr) {
+      const cap = now < p.ceilingUntil ? p.ceiling : this.maxDpr;
+      next = Math.min(cap, this.dpr + 0.1);
+    }
     if (Math.abs(next - this.dpr) > 0.01) {
+      p.bad = p.good = 0;
       this.dpr = next;
       this.renderer.setPixelRatio(next);
       this.composer.setPixelRatio(next);
@@ -612,7 +721,7 @@ export class App {
     this._t += dt;
     shared.uTime.value = this._t;
     const ch = this.current;
-    if (!ch) return;
+    if (!ch || ch.compiling) return; // (behind the veil) wait for the shaders rather than stall on them
 
     const p = this.pointer;
     if (p.down && p.moved < HOLD_SLOP) p.holdTime += dt;

@@ -5,7 +5,8 @@ import { ParticlePool } from '../objects/Particles.js';
 import { CrowBurst } from '../objects/Crow.js';
 import { createItachiFigure } from '../objects/Figure.js';
 import { kunaiGeometry } from '../objects/Weapons.js';
-import { SusanooBody } from '../objects/SusanooBody.js';
+import { SusanooBody, preloadSusanoo } from '../objects/SusanooBody.js';
+import { preloadItachi } from '../objects/ItachiGLB.js';
 import { CineCam } from '../core/CineCam.js';
 import { Shockwave } from '../objects/Shockwave.js';
 import { stormSky, mountainRing, ruins, wetGround, Bolt } from '../objects/Storm.js';
@@ -48,6 +49,8 @@ export class Susanoo extends Chapter {
     this.mirrorT = 0;
     this.shake = 0;
   }
+
+  load() { return Promise.all([preloadItachi(), preloadSusanoo()]); }
 
   build() {
     const s = this.scene;

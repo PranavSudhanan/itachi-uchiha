@@ -3,7 +3,7 @@ import { Chapter } from '../core/Chapter.js';
 import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { FlameField } from '../objects/FlameField.js';
-import { createItachi } from '../objects/ItachiGLB.js';
+import { createItachi, preloadItachi } from '../objects/ItachiGLB.js';
 import { CineCam } from '../core/CineCam.js';
 import { Shockwave } from '../objects/Shockwave.js';
 import { drawTexture, rand, damp, TAU, h, clamp, sharinganTexture } from '../core/utils.js';
@@ -33,6 +33,8 @@ export class Amaterasu extends Chapter {
     this.maxSources = app.low ? 26 : 48;
   }
 
+  load() { return preloadItachi(); }
+
   build() {
     const s = this.scene;
     // a desolate plain under a heavy overcast, the sun a dim patch behind the cloud
@@ -60,9 +62,10 @@ export class Amaterasu extends Chapter {
         g.addColorStop(0, `rgba(${l},${l * 0.9},${l * 0.78},0.35)`); g.addColorStop(1, `rgba(${l},${l * 0.9},${l * 0.78},0)`);
         x.fillStyle = g; x.fillRect(0, 0, w, w);
       }
+      // grit; a small palette of styles, since parsing a new colour string per speck is the slow part
+      const grit = Array.from({ length: 32 }, () => { const v = rand(70, 130); return `rgba(${v | 0},${(v * 0.9) | 0},${(v * 0.78) | 0},${rand(0.1, 0.4).toFixed(2)})`; });
       for (let i = 0; i < 12000; i++) {
-        const v = rand(70, 130);
-        x.fillStyle = `rgba(${v},${v * 0.9},${v * 0.78},${rand(0.1, 0.4)})`;
+        x.fillStyle = grit[i & 31];
         x.fillRect(rand(0, w), rand(0, w), rand(1, 3), rand(1, 3));
       }
       // crazed mud: a web of cracks round irregular cells
@@ -581,10 +584,15 @@ export class Amaterasu extends Chapter {
     }
     if (this.chakra > 25) this._exhausted = false;
     this._strainBeats(dt);
-    this.fill.style.width = `${this.chakra}%`;
-    this.fill.classList.toggle('low', this.chakra < COST);
-    this.chakraTxt.textContent = Math.round(this.chakra);
-    this.strainFill.style.width = `${this.strain * 100}%`;
+    // the meters are written only when they change: a DOM write every frame costs a style pass every frame
+    const hud = `${this.chakra.toFixed(1)}|${this.strain.toFixed(3)}`;
+    if (hud !== this._hud) {
+      this._hud = hud;
+      this.fill.style.width = `${this.chakra}%`;
+      this.fill.classList.toggle('low', this.chakra < COST);
+      this.chakraTxt.textContent = Math.round(this.chakra);
+      this.strainFill.style.width = `${this.strain * 100}%`;
+    }
     // his sight darkens and blurs at the edges as the strain climbs
     this.grade.vig = this._vig0 + Math.max(0, this.strain - 0.5) * 0.9;
     this.app.canvas.classList.toggle('strained', this.strain > 0.85);

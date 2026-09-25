@@ -4,6 +4,7 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import { ItachiModel, itachiPose, toonRampTexture } from './Itachi.js';
 import { skinMaterial, FaceFX, markCloak } from './ItachiFace.js';
+import { fetchBinary, parseGLB } from '../core/Assets.js';
 
 /*
  * Loads an Itachi GLB (public/models/itachi.glb) and drives its skeleton with the same pose system
@@ -113,25 +114,39 @@ function fixBrows(model, cfg, eyes) {
 let _asset = null; // { gltf, config }
 
 /** Starts loading the model once; resolves to the asset or null when there is no model file. */
-export function preloadItachi(timeoutMs = 15000) {
-  if (_asset !== null) return Promise.resolve(_asset);
-  const load = (async () => {
-    let config = {};
-    try {
-      const r = await fetch(`${BASE}itachi.json`, { cache: 'no-cache' });
-      if (r.ok && (r.headers.get('content-type') || '').includes('json')) config = await r.json();
-    } catch (_) { /* optional */ }
-    const file = config.file || 'itachi.glb';
-    // the dev server answers unknown paths with index.html, so check it is really a binary model
-    const head = await fetch(`${BASE}${file}`, { method: 'HEAD', cache: 'no-cache' }).catch(() => null);
-    if (!head || !head.ok || (head.headers.get('content-type') || '').includes('text/html')) return null;
-    const loader = new GLTFLoader();
-    loader.setMeshoptDecoder(MeshoptDecoder);
-    const gltf = await loader.loadAsync(`${BASE}${file}`);
-    return { gltf, config };
-  })().catch((e) => { console.warn('[itachi] GLB not loaded:', e); return null; });
-  const timeout = new Promise((r) => setTimeout(() => r(null), timeoutMs));
-  return Promise.race([load, timeout]).then((a) => { _asset = a || false; return a || null; });
+let _download = null; // Promise<{ buffer, config } | null>
+let _parsing = null;
+
+/** Downloads the model file (no parsing), so it is on hand by the time a chapter needs it. */
+export function prefetchItachi() {
+  if (!_download) {
+    _download = (async () => {
+      let config = {};
+      try {
+        const r = await fetch(`${BASE}itachi.json`);
+        if (r.ok && (r.headers.get('content-type') || '').includes('json')) config = await r.json();
+      } catch (_) { /* optional */ }
+      const buffer = await fetchBinary(`${BASE}${config.file || 'itachi.glb'}`);
+      return buffer ? { buffer, config } : null;
+    })().catch(() => null);
+  }
+  return _download;
+}
+
+/** Downloads (if not already) and parses the model once; resolves to the asset or null when there is none. */
+export function preloadItachi(timeoutMs = 20000) {
+  if (_asset !== null) return Promise.resolve(_asset || null);
+  if (!_parsing) {
+    const load = prefetchItachi().then(async (d) => {
+      if (!d) return null;
+      const loader = new GLTFLoader();
+      loader.setMeshoptDecoder(MeshoptDecoder);
+      return { gltf: await parseGLB(loader, d.buffer, BASE), config: d.config };
+    }).catch((e) => { console.warn('[itachi] GLB not loaded:', e); return null; });
+    const timeout = new Promise((r) => setTimeout(() => r(null), timeoutMs));
+    _parsing = Promise.race([load, timeout]).then((a) => { _asset = a || false; return a || null; });
+  }
+  return _parsing;
 }
 
 export function hasItachiGLB() { return !!_asset; }

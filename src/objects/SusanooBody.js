@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { fetchBinary, parseGLB } from '../core/Assets.js';
 import { NOISE_GLSL, shared, drawTexture, TAU } from '../core/utils.js';
 import { SHOULDER, ELBOW, HAND, GOURD_OFFSET, MIRROR_OFFSET, FACE, EYES, EYE_R, FANGS, SPINE } from './SusanooShape.js';
 
@@ -23,26 +24,32 @@ const V = (x, y, z) => new THREE.Vector3(x, y, z);
 let _sculpt = null; // Map name → BufferGeometry, or false when unavailable
 let _perfect = null; // the Perfect Susanoo scene (stage IV), or false
 
+const SCULPT_URL = './models/susanoo.glb', PERFECT_URL = './models/perfect-susanoo.glb';
+
 async function loadGLB(url) {
-  const head = await fetch(url, { method: 'HEAD', cache: 'no-cache' }).catch(() => null);
-  if (!head || !head.ok || (head.headers.get('content-type') || '').includes('text/html')) return null;
-  return new GLTFLoader().loadAsync(url);
+  const buffer = await fetchBinary(url);
+  return buffer ? parseGLB(new GLTFLoader(), buffer) : null;
 }
+
+/** Downloads the model files (no parsing), so they are on hand by the time the chapter needs them. */
+export function prefetchSusanoo() {
+  return Promise.all([fetchBinary(SCULPT_URL), fetchBinary(PERFECT_URL)]);
+}
+
+let _loading = null;
 
 /**
  * Loads the sculpted Susanoo (stages I–III, and IV unless the Perfect Susanoo is present) and the
  * optional Perfect Susanoo model used as the final stage. Resolves to true when the sculpt is available.
  */
-export function preloadSusanoo(timeoutMs = 15000) {
+export function preloadSusanoo(timeoutMs = 20000) {
   if (_sculpt !== null) return Promise.resolve(!!_sculpt);
-  const perfect = loadGLB('./models/perfect-susanoo.glb')
+  if (_loading) return _loading;
+  const perfect = loadGLB(PERFECT_URL)
     .then((g) => { _perfect = g ? g.scene : false; })
     .catch((e) => { console.warn('[susanoo] perfect model not loaded:', e); _perfect = false; });
-  const load = (async () => {
-    const url = './models/susanoo.glb';
-    const head = await fetch(url, { method: 'HEAD', cache: 'no-cache' }).catch(() => null);
-    if (!head || !head.ok || (head.headers.get('content-type') || '').includes('text/html')) return null;
-    const gltf = await new GLTFLoader().loadAsync(url);
+  const load = loadGLB(SCULPT_URL).then((gltf) => {
+    if (!gltf) return null;
     const map = new Map();
     gltf.scene.traverse((o) => {
       if (!o.isMesh) return;
@@ -50,10 +57,11 @@ export function preloadSusanoo(timeoutMs = 15000) {
       map.set(o.name, o.geometry);
     });
     return map.size ? map : null;
-  })().catch((e) => { console.warn('[susanoo] sculpt not loaded:', e); return null; });
+  }).catch((e) => { console.warn('[susanoo] sculpt not loaded:', e); return null; });
   const timeout = new Promise((r) => setTimeout(() => r(null), timeoutMs));
-  return Promise.all([Promise.race([load, timeout]), Promise.race([perfect, timeout])])
+  _loading = Promise.all([Promise.race([load, timeout]), Promise.race([perfect, timeout])])
     .then(([m]) => { _sculpt = m || false; if (_perfect === null) _perfect = false; return !!m; });
+  return _loading;
 }
 
 /* ---------------- textures ---------------- */

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeStatic } from '../core/mergeStatic.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -295,12 +296,14 @@ export class Chronicle extends Chapter {
       roof.position.set(0, 3.74, -0.05);
       roof.rotation.x = 0.12;
       stand.add(beam, topRod, cords, weight, roof);
+      mergeStatic(stand); // one mesh per material: it is shown and hidden as a whole
       s.add(stand);
       slab.userData.stand = stand;
       // a crow keeps watch on some of the stands
       if (i % 3 === 1) crowSpots.push(stand.localToWorld(new THREE.Vector3(side * 0.9, 3.9, -0.08)));
       // a stone lantern beside it, a candle inside
       const lantern = this._lantern(stoneMat);
+      mergeStatic(lantern);
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(slab.quaternion);
       lantern.position.copy(slab.position).addScaledVector(right, side * -2.3).setY(GROUND);
       s.add(lantern);
@@ -377,7 +380,16 @@ export class Chronicle extends Chapter {
       const w = 640, hh = 910;
       const silk = (c, y0, y1) => {
         x.fillStyle = c; x.fillRect(0, y0, w, y1 - y0);
-        for (let k = 0; k < (y1 - y0) * 3; k++) { const l = rand(-14, 14); x.fillStyle = `rgba(${128 + l},${120 + l},${104 + l},0.06)`; x.fillRect(0, y0 + rand(0, y1 - y0), w, 1); }
+        // the weave: faint threads in 29 shades, each shade filled as one path
+        const rows = Array.from({ length: 29 }, () => []);
+        for (let k = 0; k < (y1 - y0) * 3; k++) rows[(Math.random() * 29) | 0].push(y0 + rand(0, y1 - y0));
+        rows.forEach((ys, j) => {
+          const l = j - 14;
+          x.fillStyle = `rgba(${128 + l},${120 + l},${104 + l},0.06)`;
+          x.beginPath();
+          for (const y of ys) x.rect(0, y, w, 1);
+          x.fill();
+        });
       };
       silk('#3a342c', 0, hh);          // the side silk (hashira), under everything
       silk('#56483a', 0, 118);         // ten: the top band
@@ -394,7 +406,22 @@ export class Chronicle extends Chapter {
       brocade(py + ph, 16);
       x.fillStyle = '#e6dcc2'; x.fillRect(px, py, pw, ph);
       // washi: long fibres, a few foxing spots, yellowing toward the edges
-      for (let k = 0; k < 3200; k++) { x.strokeStyle = `rgba(160,140,100,${rand(0.04, 0.12)})`; x.lineWidth = rand(0.4, 1.2); const fx = px + rand(0, pw), fy = py + rand(0, ph); x.beginPath(); x.moveTo(fx, fy); x.lineTo(fx + rand(-12, 12), fy + rand(-4, 4)); x.stroke(); }
+      {
+        const groups = new Map(); // by strength and width, each stroked as one path
+        for (let k = 0; k < 3200; k++) {
+          const key = `${(0.04 + Math.floor(Math.random() * 5) * 0.02).toFixed(2)}|${[0.5, 0.8, 1.1][k % 3]}`;
+          if (!groups.has(key)) groups.set(key, []);
+          const fx = px + rand(0, pw), fy = py + rand(0, ph);
+          groups.get(key).push(fx, fy, fx + rand(-12, 12), fy + rand(-4, 4));
+        }
+        for (const [key, pts] of groups) {
+          const [a, lw] = key.split('|');
+          x.strokeStyle = `rgba(160,140,100,${a})`; x.lineWidth = +lw;
+          x.beginPath();
+          for (let q = 0; q < pts.length; q += 4) { x.moveTo(pts[q], pts[q + 1]); x.lineTo(pts[q + 2], pts[q + 3]); }
+          x.stroke();
+        }
+      }
       for (let k = 0; k < 14; k++) { const fx = px + rand(10, pw - 10), fy = py + rand(10, ph - 10), r = rand(2, 7); const g = x.createRadialGradient(fx, fy, 0, fx, fy, r); g.addColorStop(0, 'rgba(150,110,60,0.3)'); g.addColorStop(1, 'rgba(150,110,60,0)'); x.fillStyle = g; x.fillRect(fx - r, fy - r, r * 2, r * 2); }
       const edge = x.createRadialGradient(w / 2, py + ph / 2, pw * 0.35, w / 2, py + ph / 2, pw * 0.9);
       edge.addColorStop(0, 'rgba(140,110,60,0)'); edge.addColorStop(1, 'rgba(140,110,60,0.28)');
@@ -418,7 +445,12 @@ export class Chronicle extends Chapter {
       x.restore();
       // dry brush: fleck the ink so it isn't a flat print
       x.save(); x.globalCompositeOperation = 'destination-out';
-      for (let k = 0; k < 500; k++) { x.fillStyle = `rgba(0,0,0,${rand(0.08, 0.22)})`; x.fillRect(px + rand(20, pw - 20), areaTop + rand(0, areaBottom - areaTop), rand(0.5, 1.5), 0.5); }
+      for (let j = 0; j < 5; j++) {
+        x.fillStyle = `rgba(0,0,0,${(0.08 + j * 0.035).toFixed(3)})`;
+        x.beginPath();
+        for (let k = 0; k < 100; k++) x.rect(px + rand(20, pw - 20), areaTop + rand(0, areaBottom - areaTop), rand(0.5, 1.5), 0.5);
+        x.fill();
+      }
       x.restore();
       x.save(); x.globalCompositeOperation = 'destination-over'; x.fillStyle = '#e6dcc2'; x.fillRect(px, py, pw, ph); x.restore();
       // the seal: carved, uneven edges, the age cut in white
@@ -449,7 +481,21 @@ export class Chronicle extends Chapter {
     if (Chronicle._fibre) return Chronicle._fibre;
     Chronicle._fibre = drawTexture(512, 728, (x, w, hh) => {
       x.fillStyle = '#808080'; x.fillRect(0, 0, w, hh);
-      for (let k = 0; k < 4000; k++) { x.strokeStyle = `rgba(${rand(0, 1) < 0.5 ? '255,255,255' : '0,0,0'},${rand(0.05, 0.15)})`; x.lineWidth = rand(0.4, 1.2); const fx = rand(0, w), fy = rand(0, hh); x.beginPath(); x.moveTo(fx, fy); x.lineTo(fx + rand(-12, 12), fy + rand(-4, 4)); x.stroke(); }
+      // 4000 fibres, stroked as a few dozen paths (grouped by shade, strength and width) rather than one by one
+      const paths = new Map();
+      for (let k = 0; k < 4000; k++) {
+        const key = `${Math.random() < 0.5 ? '255,255,255' : '0,0,0'}|${(0.05 + Math.floor(Math.random() * 5) * 0.025).toFixed(3)}|${[0.5, 0.8, 1.1][k % 3]}`;
+        if (!paths.has(key)) paths.set(key, []);
+        const fx = rand(0, w), fy = rand(0, hh);
+        paths.get(key).push(fx, fy, fx + rand(-12, 12), fy + rand(-4, 4));
+      }
+      for (const [key, pts] of paths) {
+        const [rgb, a, lw] = key.split('|');
+        x.strokeStyle = `rgba(${rgb},${a})`; x.lineWidth = +lw;
+        x.beginPath();
+        for (let q = 0; q < pts.length; q += 4) { x.moveTo(pts[q], pts[q + 1]); x.lineTo(pts[q + 2], pts[q + 3]); }
+        x.stroke();
+      }
     }, false);
     return Chronicle._fibre;
   }

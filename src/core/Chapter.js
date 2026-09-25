@@ -35,6 +35,8 @@ export class Chapter {
     this.ui = h(`section.chapter-ui`, { 'data-id': id, 'aria-label': title });
   }
 
+  /** Assets the chapter needs before it can build (e.g. a model); awaited behind the chapter veil. */
+  load() { return null; }
   /** Called once (lazily) before first enter. */
   build() {}
   enter() {}

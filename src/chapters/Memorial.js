@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeStatic } from '../core/mergeStatic.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -139,6 +140,7 @@ export class Memorial extends Chapter {
       s.add(curb, gutter);
     }
 
+    this.statics = []; // what never moves: merged into a few meshes once the street is built
     this._buildHouses(s);
     this._buildLanterns(s);
     this._buildMeal(s);
@@ -147,6 +149,8 @@ export class Memorial extends Chapter {
     this._buildStreetLife(s);
     this._buildDistance(s);
     this._buildRainDetail(s);
+    mergeStatic(s, this.statics);
+    this.statics = null;
 
     // rain: long streaks around the walker, and a mist of spray at the ground
     const n = this.app.low ? 900 : 2000;
@@ -218,6 +222,7 @@ export class Memorial extends Chapter {
     const latticeLit = new THREE.MeshStandardMaterial({ map: lattice, color: 0x3a3430, emissive: 0xff9a50, emissiveMap: lattice, emissiveIntensity: 0.18, roughness: 0.9 });
     const roofMat = new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.4, metalness: 0.1, color: 0x9aa0b0, side: THREE.DoubleSide });
     const stoneMat = new THREE.MeshStandardMaterial({ color: 0x3c3a38, roughness: 0.95 });
+    const soffitMat = new THREE.MeshStandardMaterial({ color: 0x120e0c, roughness: 1, side: THREE.DoubleSide });
     this.windows = [];
     const built = [];
     const winMat = () => new THREE.MeshBasicMaterial({ color: 0xffb060, transparent: true, opacity: 0 });
@@ -236,7 +241,7 @@ export class Memorial extends Chapter {
         roof.position.y = 0.4 + hh - 0.05;
         roof.castShadow = true;
         // the eaves' shadowed underside, and a fascia board along the edge
-        const soffit = new THREE.Mesh(new THREE.PlaneGeometry(d + 1.5, w + 1.1), new THREE.MeshStandardMaterial({ color: 0x120e0c, roughness: 1, side: THREE.DoubleSide }));
+        const soffit = new THREE.Mesh(new THREE.PlaneGeometry(d + 1.5, w + 1.1), soffitMat);
         soffit.rotation.x = Math.PI / 2;
         soffit.position.y = 0.4 + hh - 0.06;
         // the latticed street front (koshi): slats over paper, dark or faintly lit from inside
@@ -250,12 +255,14 @@ export class Memorial extends Chapter {
           const win = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 0.7), winMat());
           win.position.set(-side * (d / 2 + 0.01), 0.4 + hh * 0.78, rand(-w / 4, w / 4));
           win.rotation.y = -side * Math.PI / 2;
+          win.userData.keep = true; // it fades on its own
           g.add(win);
           this.windows.push({ mesh: win, z });
         }
         g.position.set(side * (STREET_W + d / 2), 0, z);
         s.add(g);
         built.push({ g, side, z, d, w, hh });
+        this.statics.push(g);
       }
     }
     this._buildDoors(s, built);
@@ -267,10 +274,12 @@ export class Memorial extends Chapter {
       const p = new THREE.Mesh(new THREE.BoxGeometry(0.4, 4.2, 0.4), post);
       p.position.set(sx, 2.1, END - 4);
       s.add(p);
+      this.statics.push(p);
     }
     const beam = new THREE.Mesh(new THREE.BoxGeometry(6.2, 0.4, 0.6), post);
     beam.position.set(0, 4.3, END - 4);
     s.add(beam);
+    this.statics.push(beam);
     // the gate stands in a wall: plaster on a stone footing, a small tiled roof along the top, running
     // from each gate post out to the houses on either side
     for (const side of [-1, 1]) {
@@ -286,6 +295,7 @@ export class Memorial extends Chapter {
       cap.position.set(cx, 0.35 + 1.85, wz);
       cap.castShadow = true;
       s.add(foot, body, cap);
+      this.statics.push(foot, body, cap);
     }
     // a low plastered wall between two houses, where the crow waits
     const wall = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.6, 5), wallMat);
@@ -294,6 +304,7 @@ export class Memorial extends Chapter {
     const cap = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.2, 5.2), roofMat);
     cap.position.set(-STREET_W + 0.1, 1.7, -28);
     s.add(cap);
+    this.statics.push(wall, cap);
   }
 
   /** Six houses get a lit sliding door and a hanging wooden sign; each opens onto its own room. */
@@ -334,6 +345,7 @@ export class Memorial extends Chapter {
       const opening = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 2.0), new THREE.MeshBasicMaterial({ color: 0x5a3418 }));
       opening.position.set(-b.side * (b.d / 2 + 0.015), 0.4 + 1.0, lz);
       opening.rotation.y = -b.side * Math.PI / 2;
+      opening.userData.keep = door.userData.keep = sign.userData.keep = true; // the door slides; all three are its
       b.g.add(opening, door, sign);
       door.userData.house = i;
       const world = new THREE.Vector3();
@@ -342,6 +354,8 @@ export class Memorial extends Chapter {
     });
     // one interior, refurnished for whichever house you step into
     this.room = this._buildRoom(s);
+    // inside a house the room's own lights join the scene's: compile for that too, so stepping in never stalls
+    this.lightStates = [() => { this.room.R.visible = true; return () => { this.room.R.visible = false; }; }];
   }
 
   /** A single room far off the street; its furniture sets are swapped per house. */
@@ -885,6 +899,7 @@ export class Memorial extends Chapter {
     [[-1, -4], [-1, -4.6], [1, -15], [-1, -34], [1, -54]].forEach(([sd, z]) => pot(wallX(sd), z));
     fallen(1.6, -17);
     s.add(g);
+    this.statics.push(g);
   }
 
   /** Beyond the gate: more roofs, fading into rain and mist, and a ridge of hills behind them. */
