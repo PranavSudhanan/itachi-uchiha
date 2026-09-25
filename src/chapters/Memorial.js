@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { applyTextureSet } from '../core/Textures.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -101,17 +100,11 @@ export class Memorial extends Chapter {
     this.sky = nightSky(moonDir.clone().multiplyScalar(60));
     s.add(this.sky);
     this.moon = bloodMoon(2.2, { pale: true });
-    this.shaftSource = () => (this.inside != null ? null : this.redMoon?.visible ? this.redMoon.position : this.moon.position);
-    this.shaftColor = 0xb8c6ff;
-    this.shaftStrength = 0.8;
     this.moonOffset = moonDir.clone().multiplyScalar(70);
     s.add(this.moon);
 
     // the street: wet stone, standing water that holds the lantern light
     const ground = wetGround(80);
-    this.reflective = [ground];
-    // photographic stone: darkened and kept glossy by the rain (the drawn puddle map still sets the roughness)
-    applyTextureSet(ground.material, 'cobblestone_floor_001', { repeat: [55, 55], maps: ['diff', 'nor'], tint: 0x5a5a62, normalScale: 0.9, renderer: this.app.renderer });
     ground.position.z = -30;
     ground.material.envMapIntensity = 1.1;
     s.add(ground);
@@ -214,7 +207,6 @@ export class Memorial extends Chapter {
     });
     tileTex.wrapS = tileTex.wrapT = THREE.RepeatWrapping;
     const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95 });
-    applyTextureSet(wallMat, 'clay_plaster', { repeat: [3, 1.5], maps: ['nor'], normalScale: 0.7, renderer: this.app.renderer }); // the plaster's real surface under the painted frame
     const lattice = drawTexture(256, 128, (x, w, hh) => {
       x.fillStyle = '#e8dcc0'; x.fillRect(0, 0, w, hh);
       for (let i = 0; i < 800; i++) { x.fillStyle = `rgba(160,140,110,${rand(0.05, 0.2)})`; x.fillRect(rand(0, w), rand(0, hh), rand(1, 4), rand(1, 4)); }
@@ -225,7 +217,6 @@ export class Memorial extends Chapter {
     const latticeDark = new THREE.MeshStandardMaterial({ map: lattice, color: 0x3a3430, roughness: 0.9 });
     const latticeLit = new THREE.MeshStandardMaterial({ map: lattice, color: 0x3a3430, emissive: 0xff9a50, emissiveMap: lattice, emissiveIntensity: 0.18, roughness: 0.9 });
     const roofMat = new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.4, metalness: 0.1, color: 0x9aa0b0, side: THREE.DoubleSide });
-    applyTextureSet(roofMat, 'grey_roof_tiles', { repeat: [2, 2], tint: 0x6a6e78, roughness: 0.55, renderer: this.app.renderer }); // wet tiles
     const stoneMat = new THREE.MeshStandardMaterial({ color: 0x3c3a38, roughness: 0.95 });
     this.windows = [];
     const built = [];
@@ -378,7 +369,6 @@ export class Memorial extends Chapter {
     });
     const mat = (map, rough, extra = {}) => new THREE.MeshStandardMaterial({ map, roughness: rough, ...extra });
     const plaster = mat(plasterTex, 0.95, { bumpMap: plasterTex, bumpScale: 0.8 });
-    applyTextureSet(plaster, 'clay_plaster', { repeat: [2, 1], maps: ['nor', 'rough'], normalScale: 0.8, renderer: this.app.renderer });
     const timber = mat(darkTex, 0.7, { bumpMap: darkTex, bumpScale: 0.6 });
 
     // --- floor: four full tatami and two half mats, each edged in dark cloth, laid in the proper pattern ---
@@ -826,7 +816,6 @@ export class Memorial extends Chapter {
     });
     // wet wood: darker, with a sheen
     const wood = new THREE.MeshStandardMaterial({ map: grain, color: 0x8a7a68, roughness: 0.35, metalness: 0.05 });
-    applyTextureSet(wood, 'weathered_planks', { repeat: [1, 1], tint: 0x6a6258, roughness: 0.5, renderer: this.app.renderer }); // soaked
     const hoop = new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.4, metalness: 0.6 });
     const clay = new THREE.MeshPhysicalMaterial({ color: 0x5a3a2a, roughness: 0.3, clearcoat: 0.6 });
     const leaf = new THREE.MeshStandardMaterial({ color: 0x2a3a22, roughness: 0.7 });
@@ -1037,8 +1026,6 @@ export class Memorial extends Chapter {
       this.moonGlowLight.intensity = 0.9 * e * fade;
       this.rain.material.color.setRGB(0.56 + 0.2 * e * fade, 0.6 - 0.14 * e * fade, 0.7 - 0.2 * e * fade);
       this.skyRise = e * fade;
-      this.shaftColor = e * fade > 0.2 ? 0xff4a30 : 0xb8c6ff;
-      this.shaftStrength = 0.8 + e * fade * 0.6;
       if (T > R0 && !st.swell) {
         st.swell = true;
         const sfx = this.app.sfx;
@@ -1225,8 +1212,6 @@ export class Memorial extends Chapter {
     this.look = damp(this.look || 0, gyro ? -gyro.x * 0.35 : (this.app.isTouch ? 0 : -this.app.pointer.ndc.x * 0.25), 4, dt);
     const moving = Math.abs(this.pt - this.p);
     this.bob = (this.bob || 0) + dt * moving * 60;
-    // indoors the lens focuses on the room's furniture; outdoors everything stays sharp
-    this.dof = this.inside != null ? { focus: 3.2, aperture: 0.0012, maxblur: 0.007 } : null;
     if (this.inside != null) {
       // standing in the doorway of the room, looking in; drag or tilt to look around
       this.roomLookD = damp(this.roomLookD || 0, (this.roomLook || 0) + (gyro ? -gyro.x * 0.5 : 0), 5, dt);

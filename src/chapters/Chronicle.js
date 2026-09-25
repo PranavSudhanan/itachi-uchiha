@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { applyTextureSet } from '../core/Textures.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -42,9 +41,6 @@ export class Chronicle extends Chapter {
     this.sky = nightSky(moonDir.clone().multiplyScalar(60));
     s.add(this.sky);
     this.moon = bloodMoon(2.6, { pale: true });
-    this.shaftSource = () => this.moon.position;
-    this.shaftColor = 0xbfd0ff;
-    this.shaftStrength = 0.9;
     this.moonOffset = moonDir.clone().multiplyScalar(70);
     s.add(this.moon);
     this.lamp = new THREE.PointLight(0xffb070, 0, 9, 1.6);
@@ -91,7 +87,6 @@ export class Chronicle extends Chapter {
     earth.repeat.set(8, 20);
     earth.anisotropy = this.app.renderer.capabilities.getMaxAnisotropy();
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 160), new THREE.MeshStandardMaterial({ map: earth, bumpMap: earth, bumpScale: 1.2, roughness: 1 }));
-    applyTextureSet(ground.material, 'forest_leaves_02', { repeat: [20, 54], tint: 0x8a8070, renderer: this.app.renderer });
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(0, GROUND, -60);
     s.add(ground);
@@ -638,8 +633,6 @@ export class Chronicle extends Chapter {
       sl.visible = sl.userData.stand.visible = !blocks;
     }
     this.camera.lookAt(this.lookAtV);
-    // the lens rests on the scroll being read; the grove behind falls softly out of focus
-    this.dof = { focus: this.camera.position.distanceTo(centre), aperture: 0.0009, maxblur: 0.006 };
     // on a phone, tilting turns your head: look along the grove, up at the bamboo, down at the stones
     const gyro = this.app.gyro;
     this.gyroYaw = damp(this.gyroYaw || 0, gyro ? -gyro.x * 0.32 : 0, 5, dt);

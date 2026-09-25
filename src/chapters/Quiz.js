@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { applyTextureSet } from '../core/Textures.js';
 import { Chapter } from '../core/Chapter.js';
 import { SharinganEye } from '../objects/Eye.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -46,13 +45,11 @@ export class Quiz extends Chapter {
     const tile = (m, rx, ry) => { for (const k of ['map', 'bumpMap']) { m[k] = stoneTex.clone(); m[k].repeat.set(rx, ry); m[k].needsUpdate = true; } };
     const back = new THREE.Mesh(new THREE.PlaneGeometry(30, 12), wallMat.clone());
     tile(back.material, 5, 2);
-    applyTextureSet(back.material, 'japanese_stone_wall', { repeat: [4, 1.6], tint: 0x8a8078, renderer: this.app.renderer });
     back.position.set(0, FLOOR + 6, -7);
     s.add(back);
     for (const sx of [-1, 1]) {
       const side = new THREE.Mesh(new THREE.PlaneGeometry(22, 12), wallMat.clone());
       tile(side.material, 4, 2);
-      applyTextureSet(side.material, 'japanese_stone_wall', { repeat: [3, 1.6], tint: 0x8a8078, renderer: this.app.renderer });
       side.rotation.y = -sx * Math.PI / 2;
       side.position.set(sx * 13, FLOOR + 6, 2);
       s.add(side);

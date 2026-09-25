@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { applyTextureSet } from '../core/Textures.js';
 import { Chapter } from '../core/Chapter.js';
 import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
@@ -50,9 +49,6 @@ export class Precognition extends Chapter {
     moonDisc.position.copy(moonPos);
     moonDisc.lookAt(0, 1.7, 2);
     s.add(moonDisc);
-    this.shaftSource = moonDisc.position;
-    this.shaftColor = 0xc8d6ff;
-    this.shaftStrength = 1.0;
     s.fog = new THREE.FogExp2(0x0a101d, 0.028);
     // the night sky, as the steel reflects it
     {
@@ -88,7 +84,6 @@ export class Precognition extends Chapter {
     floor.wrapS = floor.wrapT = THREE.RepeatWrapping;
     floor.repeat.set(16, 16);
     const ground = new THREE.Mesh(new THREE.CircleGeometry(60, 48), new THREE.MeshStandardMaterial({ map: floor, roughness: 1 }));
-    applyTextureSet(ground.material, 'forest_ground_04', { repeat: [45, 45], tint: 0x7a8070, renderer: this.app.renderer });
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     s.add(ground);

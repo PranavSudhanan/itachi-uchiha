@@ -172,8 +172,6 @@ export class Genjutsu extends Chapter {
     }));
     moon.position.set(0, 14, -55);
     this.moon = moon;
-    this.shaftSource = () => this.moon.position;
-    this.shaftStrength = 0.9;
     s.add(moon);
     this.moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xaab8ff, transparent: true, opacity: 0.14, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
     this.moonGlow.scale.setScalar(52);
@@ -545,7 +543,6 @@ export class Genjutsu extends Chapter {
     this.moonLight.color.copy(mix(0xdde4ff, 0xff2a3a));
     this.moonGlow.material.color.copy(mix(0xaab8ff, 0xff1020));
     this.moonUniforms.uK.value = k;
-    this.shaftColor = mix(0xaab8ff, 0xff2a30).getHex();
     const cu = this.clouds.userData.uniforms;
     cu.uTime.value = t;
     cu.uK.value = k;

@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { applyTextureSet } from '../core/Textures.js';
 import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { CrowBurst } from '../objects/Crow.js';
@@ -117,9 +116,6 @@ export class Training extends Chapter {
     moon.position.copy(moonPos);
     moon.lookAt(0, 2, 6);
     s.add(moon);
-    this.shaftSource = moon.position;
-    this.shaftColor = 0xc8d6ff;
-    this.shaftStrength = 1.0;
 
     // moonlight shadows
     moonLight.castShadow = !this.app.low;
@@ -144,7 +140,6 @@ export class Training extends Chapter {
     groundTex.repeat.set(60, 60);
     groundTex.anisotropy = this.app.renderer.capabilities.getMaxAnisotropy();
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ map: groundTex, roughness: 1 }));
-    applyTextureSet(ground.material, 'forest_ground_04', { repeat: [160, 160], maps: ['nor', 'rough'], normalScale: 0.8, renderer: this.app.renderer });
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     s.add(ground);

@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { applyTextureSet } from '../core/Textures.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Chapter } from '../core/Chapter.js';
@@ -68,12 +67,10 @@ export class Relics extends Chapter {
     });
     floorTex.wrapS = floorTex.wrapT = THREE.RepeatWrapping;
     floorTex.repeat.set(3, 3);
-    const floor = this.floor = new THREE.Mesh(new THREE.CircleGeometry(14, 96), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.38, metalness: 0 }));
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(14, 96), new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.38, metalness: 0 }));
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     s.add(floor);
-    this.reflective = [floor];
-    applyTextureSet(floor.material, 'wood_floor_worn', { repeat: [7, 7], tint: 0x9a8070, roughness: 0.6, renderer: this.app.renderer });
 
     // walls: wooden pillars between shoji panels glowing faintly from lamps behind them
     const wallTex = drawTexture(1024, 512, (x, w, hh) => {
@@ -643,7 +640,6 @@ export class Relics extends Chapter {
     this.camera.position.z = damp(this.camera.position.z, this.camPos.z, 4, dt);
     this.lookAt.lerp(this.camTarget, 1 - Math.exp(-4 * dt));
     this.camera.lookAt(this.lookAt);
-    this.dof = this.focused >= 0 ? { focus: this.camera.position.distanceTo(this.lookAt), aperture: 0.0012, maxblur: 0.007 } : null;
 
     this.sparks.update(dt, t);
     this.dust.update(dt, t);

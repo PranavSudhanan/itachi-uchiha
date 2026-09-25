@@ -5,7 +5,6 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FXAAPass } from 'three/addons/postprocessing/FXAAPass.js';
-import { Pipeline, QUALITIES } from './Pipeline.js';
 import { createCinematicPass } from './CinematicPass.js';
 import { sfx } from './Audio.js';
 import { shared, damp, h } from './utils.js';
@@ -66,10 +65,7 @@ export class App {
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(this.cinePass);
     this.composer.addPass(new OutputPass());
-    this.fxaaPass = this.msaa ? null : new FXAAPass(); // runs on the final, tone-mapped image
-    if (this.fxaaPass) this.composer.addPass(this.fxaaPass);
-    // the high-end passes (occlusion, light shafts, depth of field, reflections, SMAA), by quality level
-    this.pipeline = new Pipeline(this, this.composer, { renderPass: this.renderPass, afterBloom: this.bloomPass, beforeOutput: this.fxaaPass });
+    if (!this.msaa) this.composer.addPass(new FXAAPass()); // runs on the final, tone-mapped image
     this.flashAmt = 0;
     this._tint = new THREE.Color();
 
@@ -242,7 +238,6 @@ export class App {
     this._guides(ch);
     this.renderPass.scene = ch.scene;
     this.renderPass.camera = ch.camera;
-    this.pipeline.chapterChanged(ch);
     this.bloomPass.strength = ch.bloom.strength;
     this.bloomPass.radius = ch.bloom.radius;
     this.bloomPass.threshold = ch.bloom.threshold;
@@ -532,19 +527,6 @@ export class App {
     });
     this.sfx.onChange(sync);
     sync();
-    // graphics quality: low / high / ultra, chosen for the device, changeable here (and remembered)
-    const qBtn = document.getElementById('quality-btn');
-    if (qBtn) {
-      const qSync = () => { qBtn.textContent = this.pipeline.quality.toUpperCase(); qBtn.setAttribute('aria-label', `Graphics quality: ${this.pipeline.quality}. Change`); };
-      qBtn.addEventListener('click', () => {
-        const q = QUALITIES[(QUALITIES.indexOf(this.pipeline.quality) + 1) % QUALITIES.length];
-        this.pipeline.setQuality(q);
-        this.sfx.click();
-        this.toast(`Graphics: <b>${q}</b>`, 1400);
-        qSync();
-      });
-      qSync();
-    }
   }
 
   /** Keeps the frame rate high: lowers the render resolution when frames get slow, raises it when there is headroom. */
@@ -661,7 +643,6 @@ export class App {
     this.flashAmt = damp(this.flashAmt, 0, 7, dt);
     u.uFlash.value = this.flashAmt;
 
-    this.pipeline.update(ch, dt);
     this.composer.render(dt);
     this._drawTrail(now);
   };

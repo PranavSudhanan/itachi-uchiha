@@ -57,9 +57,6 @@ export class Hero extends Chapter {
     this.sky = duskSky(moonPos, 90, { dim: 0.38, horizon: [0.17, 0.03, 0.032], mid: [0.045, 0.008, 0.016], top: [0.008, 0.002, 0.01], cloudDark: [0.02, 0.005, 0.01] });
     s.add(this.sky);
     this.moon = bloodMoon(6.5, { eclipse: true });
-    this.shaftSource = () => this.moon.position;
-    this.shaftColor = 0xff7a5a;
-    this.shaftStrength = 0.7;
     this.moon.position.copy(moonPos);
     this.moon.lookAt(0, 0, 11);
     s.add(this.moon);
