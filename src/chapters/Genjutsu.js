@@ -4,6 +4,8 @@ import { voice } from '../core/Voice.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { CrowBurst } from '../objects/Crow.js';
 import { createMirrorWater } from '../objects/MirrorWater.js';
+import { mountainRing } from '../objects/Storm.js';
+import { createBoulder } from '../objects/Nature.js';
 import { makeSky, sharinganTexture, drawTexture, featherTexture, glowTexture, rand, damp, TAU, h, clamp } from '../core/utils.js';
 
 const NORMAL = { skyTop: 0x05060f, skyBottom: 0x1b2238, fog: 0x10152a, ground: 0x0d1020, pillar: 0x2a2e3e, light: 0x8898cc };
@@ -86,11 +88,21 @@ function mistLayer() {
 }
 
 const IZANAMI_LINES = [
-  'A single feather falls. You have seen this moment before.',
-  'The same feather. The same wind. The loop tightens.',
-  'Running changes nothing. Pretending changes nothing.',
-  'Again. Itachi waits, patient as ever.',
+  'A single crow feather falls toward still water. You have lived this moment before.',
+  'The same feather. The same ripple. Nothing you do changes where it lands.',
+  'Itachi, quietly: "Running from who you are only ever brings you back here."',
+  'Again. The loop does not punish. It only waits for you to see yourself.',
 ];
+const IZ_RIGHT = 'Accept who you are';
+const IZ_WRONG = ['Keep running', 'Become someone else', 'Blame the world', 'Turn away'];
+/** The feather's fall through one loop of the moment (t in seconds from its release). */
+const IZ_FALL = 3.4;
+function featherAt(t, pos, rot) {
+  const e = Math.min(1, t / IZ_FALL);
+  const ease = e * (2 - e * 0.6) / 1.4;
+  pos.set(Math.sin(t * 2.2) * 1.1, 6.2 - ease * 5.75, 3);
+  rot.set(Math.sin(t * 2.2) * 0.6, t * 0.9, Math.sin(t * 2.2 + 0.6) * 0.8);
+}
 
 export class Genjutsu extends Chapter {
   constructor(app) {
@@ -126,9 +138,19 @@ export class Genjutsu extends Chapter {
       g.addColorStop(0, '#e8e8ec'); g.addColorStop(0.75, '#c8cad2'); g.addColorStop(1, '#8e92a0');
       x.fillStyle = g; x.beginPath(); x.arc(w / 2, w / 2, w / 2 - 2, 0, TAU); x.fill();
       x.save(); x.beginPath(); x.arc(w / 2, w / 2, w / 2 - 2, 0, TAU); x.clip();
-      // maria, craters with lit rims, and a darkened limb
-      for (let i = 0; i < 9; i++) { const cx = rand(90, w - 90), cy = rand(90, w - 90), r = rand(40, 110); const mg = x.createRadialGradient(cx, cy, 0, cx, cy, r); mg.addColorStop(0, 'rgba(90,95,112,0.4)'); mg.addColorStop(1, 'rgba(90,95,112,0)'); x.fillStyle = mg; x.fillRect(0, 0, w, w); }
-      for (let i = 0; i < 70; i++) { const cx = rand(30, w - 30), cy = rand(30, w - 30), r = rand(3, 18); x.fillStyle = 'rgba(80,84,100,0.14)'; x.beginPath(); x.arc(cx, cy, r, 0, TAU); x.fill(); x.strokeStyle = 'rgba(255,255,255,0.1)'; x.lineWidth = r * 0.25; x.beginPath(); x.arc(cx - r * 0.1, cy - r * 0.1, r, Math.PI * 0.9, Math.PI * 1.9); x.stroke(); }
+      // the seas where they really lie on the near side, soft and blended; highland speckle; one rayed crater
+      const seas = [[0.26, 0.42, 0.17], [0.3, 0.6, 0.12], [0.4, 0.3, 0.12], [0.57, 0.3, 0.08], [0.62, 0.42, 0.1], [0.66, 0.53, 0.07], [0.78, 0.36, 0.05], [0.44, 0.62, 0.07]];
+      for (const [sx, sy, sr] of seas) {
+        for (let k = 0; k < 22; k++) {
+          const cx = (sx + rand(-0.08, 0.08)) * w, cy = (sy + rand(-0.08, 0.08)) * w, r = sr * w * rand(0.3, 1.0);
+          const mg = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+          mg.addColorStop(0, 'rgba(70,74,90,0.09)'); mg.addColorStop(1, 'rgba(70,74,90,0)');
+          x.fillStyle = mg; x.fillRect(0, 0, w, w);
+        }
+      }
+      for (let i = 0; i < 5000; i++) { x.fillStyle = rand(0, 1) < 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(70,74,90,0.06)'; x.fillRect(rand(0, w), rand(0, w), rand(1, 3), rand(1, 3)); }
+      const tc = [w * 0.46, w * 0.8];
+      for (let i = 0; i < 26; i++) { const a = rand(0, TAU), l = rand(20, 90); x.strokeStyle = 'rgba(255,255,255,0.06)'; x.lineWidth = rand(1, 3); x.beginPath(); x.moveTo(...tc); x.lineTo(tc[0] + Math.cos(a) * l, tc[1] + Math.sin(a) * l); x.stroke(); }
       const lg = x.createRadialGradient(w / 2, w / 2, w * 0.3, w / 2, w / 2, w / 2); lg.addColorStop(0, 'rgba(20,24,40,0)'); lg.addColorStop(1, 'rgba(20,24,40,0.5)'); x.fillStyle = lg; x.fillRect(0, 0, w, w);
       x.restore();
     });
@@ -161,6 +183,11 @@ export class Genjutsu extends Chapter {
     s.add(this.clouds);
     this.mist = mistLayer();
     s.add(this.mist);
+
+    // low ridges on the far shore; the moon rises behind them (black against the red inside Tsukuyomi)
+    this.ridge = mountainRing(46, 0x0a0d1a, 0.55);
+    this.ridge.renderOrder = -3;
+    s.add(this.ridge);
 
     // still, mirror-like water
     this.water = createMirrorWater({ size: 170, resolution: this.app.low ? 0.3 : 0.5 });
@@ -196,6 +223,15 @@ export class Genjutsu extends Chapter {
     torii.position.set(0, 0, -12);
     s.add(torii);
     const stone = new THREE.MeshStandardMaterial({ color: 0x3a3a40, roughness: 0.95, flatShading: true });
+    // flat stones breaking the surface, a path across the water to the gate
+    for (let i = 0; i < 9; i++) {
+      const st = createBoulder(stone);
+      const z = 6 - i * 2.05;
+      st.position.set(Math.sin(i * 1.3) * 0.5, -0.08, z);
+      st.scale.set(rand(0.55, 0.7), 0.16, rand(0.45, 0.6));
+      st.rotation.y = rand(0, TAU);
+      s.add(st);
+    }
     this.lanternLights = [];
     for (const sx of [-5, 5]) {
       const l = new THREE.Group();
@@ -275,9 +311,22 @@ export class Genjutsu extends Chapter {
     this.moteC = new THREE.Color(0xffffff);
 
     // Izanami feather
-    this.feather = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 1.2), new THREE.MeshBasicMaterial({ map: featherTexture(), transparent: true, side: THREE.DoubleSide, color: 0xffffff }));
+    const fGeo = new THREE.PlaneGeometry(0.8, 1.6);
+    this.feather = new THREE.Mesh(fGeo, new THREE.MeshBasicMaterial({ map: featherTexture(), transparent: true, side: THREE.DoubleSide, color: 0xffffff }));
     this.feather.visible = false;
     s.add(this.feather);
+    this.featherGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: 0xc8d2ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    this.featherGlow.scale.setScalar(1.8);
+    s.add(this.featherGlow);
+    // déjà vu: faint echoes of the feather a moment ahead, once you have lived the loop before
+    this.echoes = [0.35, 0.7].map(() => {
+      const m = new THREE.Mesh(fGeo, new THREE.MeshBasicMaterial({ map: featherTexture(), transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, color: 0xb8c0e0 }));
+      m.visible = false;
+      s.add(m);
+      return m;
+    });
+    this._fp = new THREE.Vector3();
+    this._fr = new THREE.Euler();
     this.shards = new ParticlePool({ count: 600, gravity: -3, drag: 0.5 });
     s.add(this.shards.points);
     this.crows = new CrowBurst(40, 1);
@@ -328,13 +377,14 @@ export class Genjutsu extends Chapter {
     this.izBox = h('div.izanami.pe.hidden', {},
       this.izLoops = h('div.loops'),
       this.izText = h('p'),
-      h('div.choices', {},
-        this.button('Keep running', () => this.choose(false)),
-        this.button('Become someone else', () => this.choose(false)),
-        this.button('Accept who you are', () => this.choose(true)),
-      ),
+      this.izChoices = h('div.choices'),
     );
     this.ui.append(this.izBox);
+    // Izanami's price: the Mangekyō that casts it goes blind for ever
+    const eyeImg = h('img', { alt: '', src: sharinganTexture('mangekyo').image.toDataURL() });
+    this.izEye = h('div.iz-eye', { 'aria-hidden': 'true' }, eyeImg, h('i.lid.top'), h('i.lid.bottom'));
+    this.izCaption = h('div.iz-caption', { text: 'Izanami — the eye that casts it will never see again' });
+    this.ui.append(this.izEye, this.izCaption);
     this.ui.append(h('div.controls', {}, this.holdBtn, this.izBtn));
   }
 
@@ -366,20 +416,38 @@ export class Genjutsu extends Chapter {
 
   startIzanami() {
     if (this.kTarget) this.release();
-    this.iz = { on: true, phase: 'fall', t: 0, loops: 0 };
+    // first the price: the Mangekyō appears, its light goes out, and it closes
+    this.iz = { on: true, phase: 'eye', t: 0, loops: 0 };
     this.izBtn.classList.add('active');
     this.app.sfx.genjutsu();
+    this.app.sfx.mangekyo?.();
     voice.say('izanami', { cooldown: 5, subtitle: false });
-    this.app.toast('<b>イザナミ · Izanami</b><br>A moment will repeat until you choose correctly.', 3500);
-    this._resetFeather();
+    this.izEye.classList.remove('blind', 'closed');
+    this.izEye.classList.add('on');
+    this.izCaption.classList.add('on');
+    this.ui.classList.add('casting'); // the moment has the screen to itself
+    this.izBox.classList.add('hidden');
   }
 
   _resetFeather() {
     this.feather.visible = true;
-    this.feather.position.set(0, 7, 4);
+    featherAt(0, this.feather.position, this.feather.rotation);
     this.iz.t = 0;
     this.iz.phase = 'fall';
+    this.iz.landed = false;
     this.izBox.classList.add('hidden');
+  }
+
+  /** The choice for this loop: the true answer and two false ones, never in the same order twice. */
+  _izChoices() {
+    const wrong = [...IZ_WRONG].sort(() => Math.random() - 0.5).slice(0, 2);
+    const opts = [IZ_RIGHT, ...wrong].sort(() => Math.random() - 0.5);
+    this.izChoices.replaceChildren(...opts.map((o) => {
+      const b = this.button(o, () => this.choose(o === IZ_RIGHT));
+      // after two lost loops, the answer begins to show itself
+      if (o === IZ_RIGHT && this.iz.loops >= 2) b.classList.add('iz-hint');
+      return b;
+    }));
   }
 
   choose(correct) {
@@ -390,11 +458,15 @@ export class Genjutsu extends Chapter {
       this.shards.burst(this.feather.position, 300, { speed: 9, life: [0.8, 2], size: [0.05, 0.14], colors: [this.moteC, this.moteB] });
       this.crows.fire(this.feather.position, { speed: 9, up: 4 });
       this.feather.visible = false;
+      this.echoes.forEach((m) => { m.visible = false; });
+      this.water.ripple(this.feather.position.x, this.feather.position.z, 2.5);
       this.app.sfx.boom();
       this.app.sfx.chime();
       this.app.toast(`<b>The loop is broken</b> after ${this.iz.loops + 1} ${this.iz.loops ? 'cycles' : 'cycle'}.<br>Izanami was designed to guide, not punish: it ends when the target accepts who they truly are. Itachi used it to stop Kabuto.`, 7000);
       this.iz.on = false;
+      this.iz.phase = 'idle';
       this.izBtn.classList.remove('active');
+      this.ui.classList.remove('casting');
     } else {
       this.iz.loops++;
       this.iz.phase = 'rewind';
@@ -417,8 +489,13 @@ export class Genjutsu extends Chapter {
     this.charging = false;
     this.charge = 0;
     if (this.kTarget) this.release();
+    this.izEye?.classList.remove('on', 'blind', 'closed');
+    this.ui.classList.remove('casting');
+    this.izCaption?.classList.remove('on');
     if (this.iz.on) {
       this.iz.on = false;
+      this.iz.phase = 'idle';
+      this.echoes.forEach((m) => { m.visible = false; });
       this.feather.visible = false;
       this.izBox.classList.add('hidden');
       this.izBtn.classList.remove('active');
@@ -461,6 +538,7 @@ export class Genjutsu extends Chapter {
     this.lacquer.color.copy(mix(0xa3141c, 0x050000));
     this.lanternLights.forEach(({ light, glow }) => { light.intensity = 6 * (1 - k); glow.material.color.copy(mix(0xffb060, 0x200000)); });
     this.pillarMat.color.copy(mix(NORMAL.pillar, TSUKU.pillar));
+    this.ridge.material.color.copy(mix(0x0a0d1a, 0x060000));
     this.hemi.color.copy(mix(NORMAL.light, TSUKU.light));
     this.moonLight.color.copy(mix(0xdde4ff, 0xff2a3a));
     this.moonGlow.material.color.copy(mix(0xaab8ff, 0xff1020));
@@ -507,29 +585,54 @@ export class Genjutsu extends Chapter {
     }
 
     // Izanami state machine
+    // the world inside Izanami is a memory: drained of colour, closed in at the edges
+    const izActive = this.iz.on && this.iz.phase !== 'eye';
+    this.izK = damp(this.izK || 0, izActive ? 1 : 0, izActive ? 1.5 : 2.5, dt);
+    this.grade.sat = 1 - this.izK * 0.72;
+    this.grade.vig = 0.55 + this.izK * 0.3;
     if (this.iz.on || this.iz.phase === 'rewind') {
       const f = this.feather;
       this.iz.t += dt;
-      if (this.iz.phase === 'fall') {
-        const e = Math.min(1, this.iz.t / 3.2);
-        f.position.set(Math.sin(this.iz.t * 2.2) * 1.2, 7 - e * 6.2, 4);
-        f.rotation.set(Math.sin(this.iz.t * 2.2) * 0.6, this.iz.t, Math.sin(this.iz.t * 2.2) * 0.8);
-        if (e >= 1) {
+      if (this.iz.phase === 'eye') {
+        if (this.iz.t > 1.1) this.izEye.classList.add('blind');
+        if (this.iz.t > 2.0) this.izEye.classList.add('closed');
+        if (this.iz.t > 2.9) { this.izEye.classList.remove('on'); this.izCaption.classList.remove('on'); this._resetFeather(); }
+      } else if (this.iz.phase === 'fall') {
+        featherAt(this.iz.t, f.position, f.rotation);
+        // the moment it touches the water: the same ripple, every time
+        if (this.iz.t >= IZ_FALL && !this.iz.landed) {
+          this.iz.landed = true;
+          this.water.ripple(f.position.x, f.position.z, 1.4);
+          this.app.sfx.tone({ freq: 700, to: 260, type: 'sine', dur: 0.4, vol: 0.07 });
+        }
+        if (this.iz.t >= IZ_FALL + 0.5) {
           this.iz.phase = 'choice';
           this.izLoops.textContent = this.iz.loops ? `Loop ${this.iz.loops + 1}` : 'The moment';
           this.izText.textContent = IZANAMI_LINES[Math.min(this.iz.loops, IZANAMI_LINES.length - 1)];
+          this._izChoices();
           this.izBox.classList.remove('hidden');
         }
       } else if (this.iz.phase === 'rewind') {
-        const e = Math.min(1, this.iz.t / 0.9);
-        f.position.y = 0.8 + e * 6.2;
-        f.rotation.y -= dt * 20;
+        // the moment runs backwards: the feather lifts off the water along the very path it fell
+        const e = Math.min(1, this.iz.t / 1.0);
+        featherAt(IZ_FALL * (1 - e * e), f.position, f.rotation);
         if (e >= 1) this._resetFeather();
       }
     }
+    // the feather's soft moonlit halo, and its echoes a beat ahead once you've been here before
+    const fOn = this.feather.visible && (this.iz.on || this.iz.phase === 'rewind');
+    this.featherGlow.position.copy(this.feather.position);
+    this.featherGlow.material.opacity = damp(this.featherGlow.material.opacity, fOn ? 0.14 : 0, 4, dt);
+    this.echoes.forEach((m, i) => {
+      const show = fOn && this.iz.loops > 0 && this.iz.phase === 'fall' && this.iz.t < IZ_FALL;
+      m.visible = show;
+      if (!show) return;
+      featherAt(Math.min(IZ_FALL, this.iz.t + (i + 1) * 0.35), m.position, m.rotation);
+      m.material.opacity = 0.2 - i * 0.07;
+    });
 
     // camera
-    this.yawTarget += dt * 0.03;
+    if (!this.iz.on) this.yawTarget += dt * 0.03;
     this.yaw = damp(this.yaw, this.yawTarget, 4, dt);
     // on a phone, tilting orbits the view a little around the torii and lifts or lowers it
     const gyro = this.app.gyro;

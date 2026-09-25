@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --ink: #07030a;
   --ink-2: #140a12;
   --crimson: #d0142a;
@@ -318,6 +318,30 @@ body.has-cursor, body.has-cursor * { cursor: none !important; }
 .izanami p { margin: 0 0 12px; font-family: var(--serif); font-size: 15px; line-height: 1.6; }
 .izanami .loops { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--crimson-2); margin-bottom: 8px; }
 .izanami .choices { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.izanami .iz-hint { border-color: rgba(236, 226, 214, .55); box-shadow: 0 0 18px rgba(236, 226, 214, .25); animation: izHint 2.4s ease-in-out infinite; }
+@keyframes izHint { 50% { box-shadow: 0 0 26px rgba(236, 226, 214, .45); } }
+/* Izanami's price: the Mangekyō shown, its light going out, the lids closing over it */
+.iz-eye {
+  position: absolute; left: 50%; top: 40%; width: min(52vw, 260px); aspect-ratio: 1; border-radius: 50%; overflow: hidden;
+  transform: translate(-50%, -50%) scale(.85); opacity: 0; pointer-events: none;
+  box-shadow: 0 0 80px rgba(255, 10, 30, .45), inset 0 0 30px rgba(0, 0, 0, .8);
+  transition: opacity .6s ease, transform 1.2s cubic-bezier(.2, .8, .2, 1), filter 1.1s ease, box-shadow 1.1s ease;
+}
+.iz-eye img { width: 100%; height: 100%; display: block; animation: izSpin 6s linear infinite; }
+@keyframes izSpin { to { transform: rotate(-360deg); } }
+.iz-eye.on { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+.iz-eye.blind { filter: grayscale(1) brightness(.5) contrast(.8) blur(.6px); box-shadow: 0 0 40px rgba(180, 180, 200, .15), inset 0 0 30px rgba(0, 0, 0, .9); }
+.iz-eye.blind img { animation-play-state: paused; }
+.iz-eye .lid { position: absolute; left: -5%; right: -5%; height: 52%; background: #050306; transition: transform .8s cubic-bezier(.6, 0, .3, 1); }
+.iz-eye .lid.top { top: 0; transform: translateY(-102%); border-radius: 0 0 50% 50% / 0 0 30% 30%; }
+.iz-eye .lid.bottom { bottom: 0; transform: translateY(102%); border-radius: 50% 50% 0 0 / 30% 30% 0 0; }
+.iz-eye.closed .lid { transform: none; }
+.iz-caption {
+  position: absolute; left: 50%; top: calc(40% + min(26vw, 130px) + 22px); transform: translateX(-50%); width: min(90vw, 460px);
+  text-align: center; font-family: var(--serif); font-size: 13px; letter-spacing: .14em; color: rgba(236, 226, 214, .8);
+  opacity: 0; transition: opacity .6s ease; pointer-events: none;
+}
+.iz-caption.on { opacity: 1; transition-delay: .9s; }
 
 /* ---------- Loader ---------- */
 #loader {
@@ -488,9 +512,16 @@ body.has-cursor #cursor { display: block; }
   .pill { padding: 6px 10px; font-size: 10px; }
   .pill b { font-size: 13px; }
   .meter { width: 130px; }
-  .timeline-card { bottom: calc(110px + var(--nav-h)); max-height: 34vh; }
-  .tl-progress { right: var(--gutter); bottom: calc(80px + var(--nav-h)); }
-  .tl-age { font-size: 32px; }
+  /* Chronicle on a phone: a compact card, and the arrows either side of the progress line in one row */
+  .timeline-card { bottom: calc(64px + var(--nav-h) + env(safe-area-inset-bottom)); max-height: 30vh; padding: 12px 14px; overflow: auto; }
+  .timeline-card h3 { font-size: 16px; margin: 2px 0 6px; }
+  .timeline-card p { font-size: 12.5px; line-height: 1.5; margin: 0; }
+  .timeline-card .card-jp { font-size: 11px; }
+  .tl-age { font-size: 26px; }
+  .tl-controls { left: var(--gutter); right: var(--gutter); width: auto; transform: none; justify-content: space-between; bottom: calc(12px + var(--nav-h) + env(safe-area-inset-bottom)); }
+  .tl-controls .btn { min-width: 40px; padding: 8px 12px; }
+  .tl-controls .lbl { display: none; }
+  .tl-progress { left: calc(var(--gutter) + 58px); right: calc(var(--gutter) + 58px); bottom: calc(31px + var(--nav-h) + env(safe-area-inset-bottom)); }
   .izanami { bottom: calc(80px + var(--nav-h)); }
   #toast { top: 64px; font-size: 13px; }
 }

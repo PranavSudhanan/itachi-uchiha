@@ -37,9 +37,10 @@ export class Susanoo extends Chapter {
     this.nextBolt = 6;
     try { this.best = +localStorage.getItem('itachi-susanoo') || 0; } catch (_) { this.best = 0; }
     this.stage = 0;
-    this.yaw = 0.5;
+    // phones start square on to the Susanoo; larger screens at a three-quarter view
+    this.yaw = app.isTouch ? 0 : 0.5;
     this.pitch = 0.12;
-    this.yawT = 0.5;
+    this.yawT = this.yaw;
     this.pitchT = 0.12;
     this.idle = 0;
     this.kunai = [];
@@ -925,17 +926,21 @@ export class Susanoo extends Chapter {
 
     // orbit camera
     this.idle += dt;
-    if (this.idle > 2.5 && !this.game.on) this.yawT += dt * 0.12;
-    // on a phone, tilting lets you peer a little round the Susanoo and up at it, like shifting where you
-    // stand before a giant; its eyes follow you. A dead zone ignores the tremor of a hand-held phone, and
-    // tilt pauses while a finger is down, in the dodge game and in the cinematics
+    if (this.idle > 2.5 && !this.game.on) {
+      // on a phone, left alone, the view settles back square on to the Susanoo; larger screens drift round it
+      if (this.app.isTouch) this.yawT = damp(this.yawT, Math.round(this.yawT / TAU) * TAU, 0.9, dt);
+      else this.yawT += dt * 0.12;
+    }
+    // on a phone, tilt never swings the view round: it only slides where you stand a little, the camera
+    // still facing the Susanoo straight on (its eyes follow you). A dead zone ignores the tremor of a
+    // hand-held phone, and tilt pauses while a finger is down, in the dodge game and in the cinematics
     const gyro = this.app.gyro;
     const calm = gyro && !this.app.pointer.down && !this.game.on && !this.cine.active;
-    const dz = (v) => Math.sign(v) * Math.max(0, Math.abs(v) - 0.12) / 0.88;
-    this.tiltX = damp(this.tiltX || 0, calm ? dz(gyro.x) : 0, 1.6, dt);
-    this.tiltY = damp(this.tiltY || 0, calm ? dz(gyro.y) : 0, 1.6, dt);
-    this.yaw = damp(this.yaw, this.yawT + this.tiltX * 0.18, 5, dt);
-    this.pitch = damp(this.pitch, this.pitchT - this.tiltY * 0.07, 5, dt);
+    const dz = (v) => Math.sign(v) * Math.max(0, Math.abs(v) - 0.15) / 0.85;
+    this.tiltX = damp(this.tiltX || 0, calm ? dz(gyro.x) : 0, 1.4, dt);
+    this.tiltY = damp(this.tiltY || 0, calm ? dz(gyro.y) : 0, 1.4, dt);
+    this.yaw = damp(this.yaw, this.yawT, 5, dt);
+    this.pitch = damp(this.pitch, this.pitchT, 5, dt);
     const portrait = this.app.width / this.app.height < 0.9;
     const tall = this.stage >= 4 && this.body.perfect ? 1 : 0;
     const dist = (this.game.on ? (portrait ? 34 : 25) : (portrait ? 27 : 19) - (this.stage === 0 ? (portrait ? 12 : 9) : 0)) + tall * (portrait ? 8 : 5);
@@ -945,10 +950,11 @@ export class Susanoo extends Chapter {
     this.shake = damp(this.shake, 0, 5, dt);
     this.shockS.update(dt);
     if (!this.cine.update(dt)) {
+      const side = this.tiltX * 1.1, lift = -this.tiltY * 0.6;
       this.camera.position.set(
-        Math.sin(this.yaw) * Math.cos(this.pitch) * this.camDist + rand(-1, 1) * this.shake * 0.3,
-        this.camLook + Math.sin(this.pitch) * this.camDist + rand(-1, 1) * this.shake * 0.3,
-        Math.cos(this.yaw) * Math.cos(this.pitch) * this.camDist,
+        Math.sin(this.yaw) * Math.cos(this.pitch) * this.camDist + Math.cos(this.yaw) * side + rand(-1, 1) * this.shake * 0.3,
+        this.camLook + Math.sin(this.pitch) * this.camDist + lift + rand(-1, 1) * this.shake * 0.3,
+        Math.cos(this.yaw) * Math.cos(this.pitch) * this.camDist - Math.sin(this.yaw) * side,
       );
       this.camera.lookAt(0, this.camLook, 0);
     }

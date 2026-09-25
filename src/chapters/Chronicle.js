@@ -7,6 +7,8 @@ import { createGrass } from '../objects/Nature.js';
 import { nightSky, bloodMoon } from '../objects/Dusk.js';
 import { TIMELINE } from '../data/content.js';
 
+const V_TMP = new THREE.Vector3();
+
 export class Chronicle extends Chapter {
   constructor(app) {
     super(app, { id: 'chronicle', title: 'Chronicle', jp: '年代記' });
@@ -337,9 +339,10 @@ export class Chronicle extends Chapter {
     this.progressFill = h('i');
     this.ui.append(h('div.tl-progress', {}, this.progressFill, ticks));
 
-    this.ui.append(h('div.controls', {},
-      this.button('↑ Previous', () => this.goToStop(this.activeIndex - 1)),
-      this.button('Next ↓', () => this.goToStop(this.activeIndex + 1)),
+    // on a phone the labels fold away and the arrows flank the progress line in a single row
+    this.ui.append(h('div.controls.tl-controls', {},
+      this.button('↑<span class="lbl"> Previous</span>', () => this.goToStop(this.activeIndex - 1)),
+      this.button('<span class="lbl">Next </span>↓', () => this.goToStop(this.activeIndex + 1)),
     ));
   }
 
@@ -416,9 +419,25 @@ export class Chronicle extends Chapter {
     const pos = this.curve.getPointAt(clamp(this.p, 0, 1));
     const ahead = this.curve.getPointAt(clamp(this.p + 0.05, 0, 1));
     const sway = this.app.isTouch ? 0 : this.app.pointer.ndc.x * 0.5;
-    this.camera.position.set(pos.x + sway, pos.y + 0.9, pos.z + 1.5);
-    const focus = this.slabs[this.activeIndex < 0 ? 0 : this.activeIndex].position;
-    this.lookAtV = (this.lookAtV || ahead.clone()).lerp(ahead.clone().lerp(focus, 0.6), 1 - Math.exp(-3 * dt));
+    const focusSlab = this.slabs[this.activeIndex < 0 ? 0 : this.activeIndex];
+    const focus = focusSlab.position;
+    const portrait = this.app.width / this.app.height < 0.9;
+    if (portrait) {
+      // a narrow screen can't see the stele from the path's edge: stand back in front of it, square on,
+      // far enough that the whole slab fits the clear band between the title and the card
+      const normal = V_TMP.set(0, 0, 1).applyQuaternion(focusSlab.quaternion);
+      const back = 8.6 * Math.max(1, 0.5 / (this.app.width / this.app.height));
+      const want = focus.clone().addScaledVector(normal, back).add(new THREE.Vector3(0, 0.7, 0));
+      this.camPosP = (this.camPosP || want.clone()).lerp(want, 1 - Math.exp(-2.6 * dt));
+      this.camera.position.copy(this.camPosP);
+      // aim below the slab so it sits in the upper part of the screen
+      const aim = focus.clone().add(new THREE.Vector3(0, -0.75, 0));
+      this.lookAtV = (this.lookAtV || aim.clone()).lerp(aim, 1 - Math.exp(-3 * dt));
+    } else {
+      this.camPosP = null;
+      this.camera.position.set(pos.x + sway, pos.y + 0.9, pos.z + 1.5);
+      this.lookAtV = (this.lookAtV || ahead.clone()).lerp(ahead.clone().lerp(focus, 0.6), 1 - Math.exp(-3 * dt));
+    }
     this.camera.lookAt(this.lookAtV);
     // on a phone, tilting turns your head: look along the grove, up at the bamboo, down at the stones
     const gyro = this.app.gyro;
