@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Chapter } from '../core/Chapter.js';
 import { ParticlePool } from '../objects/Particles.js';
 import { drawTexture, rand, damp, clamp, h, glowTexture, TAU } from '../core/utils.js';
@@ -46,27 +47,45 @@ export class Chronicle extends Chapter {
     const pathX = (z) => { let best = samples[0]; for (const q of samples) if (Math.abs(q.z - z) < Math.abs(best.z - z)) best = q; return best.x; };
 
     // mossy earth
-    const earth = drawTexture(512, 512, (x, w) => {
-      x.fillStyle = '#161a10'; x.fillRect(0, 0, w, w);
-      for (let i = 0; i < 4000; i++) {
+    const earth = drawTexture(1024, 1024, (x, w) => {
+      x.fillStyle = '#17140e'; x.fillRect(0, 0, w, w);
+      for (let i = 0; i < 3000; i++) { const l = rand(14, 34); x.fillStyle = `rgba(${l},${l * 0.9},${l * 0.6},0.6)`; x.fillRect(rand(0, w), rand(0, w), rand(1, 4), rand(1, 4)); }
+      // fallen leaves: narrow, pointed, in straw, tan and brown, a few still green, lying every which way
+      for (let i = 0; i < 5200; i++) {
         const t = Math.random();
-        x.fillStyle = t < 0.6 ? `rgba(${rand(25, 45)},${rand(38, 58)},${rand(18, 30)},0.55)` : `rgba(${rand(45, 70)},${rand(38, 52)},${rand(26, 36)},0.5)`;
-        x.fillRect(rand(0, w), rand(0, w), rand(1, 4), rand(1, 4));
+        const c = t < 0.45 ? [rand(90, 130), rand(74, 100), rand(40, 60)] : t < 0.85 ? [rand(55, 85), rand(40, 58), rand(22, 34)] : [rand(40, 60), rand(62, 86), rand(28, 40)];
+        x.save(); x.translate(rand(0, w), rand(0, w)); x.rotate(rand(0, TAU));
+        const L = rand(14, 30), W = L * rand(0.1, 0.16);
+        x.fillStyle = `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${rand(0.55, 0.9)})`;
+        x.beginPath(); x.moveTo(-L, 0); x.quadraticCurveTo(0, -W, L, 0); x.quadraticCurveTo(0, W, -L, 0); x.fill();
+        x.strokeStyle = 'rgba(30,22,12,0.35)'; x.lineWidth = 0.6; x.beginPath(); x.moveTo(-L * 0.9, 0); x.lineTo(L * 0.9, 0); x.stroke();
+        x.restore();
+      }
+      // and moss creeping over them in places
+      for (let i = 0; i < 40; i++) {
+        const cx = rand(0, w), cy = rand(0, w), r = rand(30, 90);
+        const g = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+        g.addColorStop(0, 'rgba(34,52,22,0.5)'); g.addColorStop(1, 'rgba(34,52,22,0)');
+        x.fillStyle = g; x.fillRect(cx - r, cy - r, r * 2, r * 2);
       }
     });
     earth.wrapS = earth.wrapT = THREE.RepeatWrapping;
-    earth.repeat.set(10, 26);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 160), new THREE.MeshStandardMaterial({ map: earth, roughness: 1 }));
+    earth.repeat.set(8, 20);
+    earth.anisotropy = this.app.renderer.capabilities.getMaxAnisotropy();
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 160), new THREE.MeshStandardMaterial({ map: earth, bumpMap: earth, bumpScale: 1.2, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2;
     ground.position.set(0, GROUND, -60);
     s.add(ground);
     // stepping stones along the path
-    const stoneTex = drawTexture(128, 128, (x, w) => {
-      x.fillStyle = '#5a5a5e'; x.fillRect(0, 0, w, w);
-      for (let i = 0; i < 700; i++) { const l = rand(50, 120); x.fillStyle = `rgba(${l},${l},${l + 3},0.5)`; x.fillRect(rand(0, w), rand(0, w), rand(1, 3), rand(1, 3)); }
+    const stoneTex = drawTexture(256, 256, (x, w) => {
+      x.fillStyle = '#4c4b4c'; x.fillRect(0, 0, w, w);
+      for (let i = 0; i < 3000; i++) { const l = rand(40, 115); x.fillStyle = `rgba(${l},${l},${l + 3},0.5)`; x.fillRect(rand(0, w), rand(0, w), rand(1, 3), rand(1, 3)); }
+      // lichen: pale rosettes, and moss dark green
+      for (let i = 0; i < 26; i++) { const cx = rand(0, w), cy = rand(0, w), r = rand(4, 14); x.fillStyle = `rgba(${rand(120, 150)},${rand(130, 150)},${rand(100, 120)},0.25)`; x.beginPath(); x.arc(cx, cy, r, 0, TAU); x.fill(); }
+      for (let i = 0; i < 1200; i++) { x.fillStyle = `rgba(${rand(30, 50)},${rand(55, 80)},${rand(25, 40)},0.4)`; const a = rand(0, TAU), r = rand(w * 0.3, w * 0.5); x.fillRect(w / 2 + Math.cos(a) * r, w / 2 + Math.sin(a) * r, rand(1, 4), rand(1, 4)); }
     });
-    const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.85 });
-    const stepGeo = new THREE.CylinderGeometry(0.42, 0.48, 0.14, 16);
+    const stoneMat = new THREE.MeshStandardMaterial({ map: stoneTex, bumpMap: stoneTex, bumpScale: 1.4, roughness: 0.88 });
+    const stepGeo = new THREE.CylinderGeometry(0.42, 0.48, 0.2, 20, 1);
     {
       // an irregular, rounded outline, not a coin
       const sp = stepGeo.attributes.position;
@@ -75,6 +94,8 @@ export class Chronicle extends Chapter {
         const a = Math.atan2(sp.getZ(i), sp.getX(i));
         const f = k[((Math.round((a / TAU) * 16) % 16) + 16) % 16];
         sp.setX(i, sp.getX(i) * f); sp.setZ(i, sp.getZ(i) * f);
+        // worn into a low dome, the rim rounded off
+        if (sp.getY(i) > 0) { const r = Math.hypot(sp.getX(i), sp.getZ(i)) / 0.45; sp.setY(i, sp.getY(i) + (1 - Math.min(1, r * r)) * 0.04 - (r > 0.9 ? 0.03 : 0)); }
       }
       stepGeo.computeVertexNormals();
     }
@@ -83,7 +104,7 @@ export class Chronicle extends Chapter {
     const d = new THREE.Object3D();
     for (let k = 0; k < STEPS; k++) {
       const q = this.curve.getPointAt(k / (STEPS - 1));
-      d.position.set(q.x + rand(-0.15, 0.15), GROUND + 0.03, q.z);
+      d.position.set(q.x + rand(-0.15, 0.15), GROUND - 0.05, q.z);
       d.rotation.set(rand(-0.04, 0.04), rand(0, TAU), rand(-0.04, 0.04));
       d.scale.set(rand(0.8, 1.2), 1, rand(0.7, 1.05));
       d.updateMatrix();
@@ -93,34 +114,54 @@ export class Chronicle extends Chapter {
     s.add(steps);
     // grass either side of the path
     for (let k = 0; k < 4; k++) {
-      const g = createGrass({ count: this.app.low ? 1500 : 3500, area: 30, center: new THREE.Vector3(0, 0, -10 - k * 30), tip: 0x4f6a36, base: 0x101a0c, height: [0.3, 0.7], avoid: (x, z) => Math.abs(x - pathX(z)) < 1.1 });
+      const g = createGrass({ count: this.app.low ? 2500 : 6000, area: 30, center: new THREE.Vector3(0, 0, -10 - k * 30), tip: 0x4f6a36, base: 0x101a0c, height: [0.3, 0.7], avoid: (x, z) => Math.abs(x - pathX(z)) < 1.1 });
       g.position.y = GROUND;
       s.add(g);
     }
     // bamboo: tall segmented stalks lining the path, leaf sprays at their crowns
-    const bambooTex = drawTexture(64, 512, (x, w, hh) => {
+    const bambooTex = drawTexture(128, 512, (x, w, hh) => {
       const g = x.createLinearGradient(0, 0, w, 0);
-      g.addColorStop(0, '#2c4a22'); g.addColorStop(0.45, '#5f8a42'); g.addColorStop(1, '#223a1a');
+      g.addColorStop(0, '#3a5a2a'); g.addColorStop(0.4, '#7a9a52'); g.addColorStop(0.55, '#6a8a48'); g.addColorStop(1, '#2a4220');
       x.fillStyle = g; x.fillRect(0, 0, w, hh);
-      for (let y = 40; y < hh; y += 90) { x.fillStyle = '#1a2a12'; x.fillRect(0, y, w, 5); x.fillStyle = 'rgba(200,220,160,0.35)'; x.fillRect(0, y + 5, w, 2); }
+      // fine vertical fibres, and pale waxy bloom below each node
+      for (let i = 0; i < 160; i++) { x.fillStyle = `rgba(${rand(20, 60)},${rand(40, 80)},${rand(20, 40)},0.25)`; x.fillRect(rand(0, w), 0, 1, hh); }
+      for (let y = 40; y < hh; y += 128) {
+        const b = x.createLinearGradient(0, y + 6, 0, y + 50);
+        b.addColorStop(0, 'rgba(210,220,190,0.28)'); b.addColorStop(1, 'rgba(210,220,190,0)');
+        x.fillStyle = b; x.fillRect(0, y + 6, w, 44);
+        x.fillStyle = '#1c2c14'; x.fillRect(0, y, w, 4); x.fillStyle = 'rgba(220,230,180,0.4)'; x.fillRect(0, y + 4, w, 2);
+      }
+      // dark blotches of age on the older culms
+      for (let i = 0; i < 14; i++) { x.fillStyle = 'rgba(40,34,20,0.25)'; x.beginPath(); x.ellipse(rand(0, w), rand(0, hh), rand(3, 10), rand(8, 30), 0, 0, TAU); x.fill(); }
     });
     bambooTex.wrapS = bambooTex.wrapT = THREE.RepeatWrapping;
     bambooTex.repeat.set(1, 4);
-    const leafTex = drawTexture(256, 256, (x, w) => {
-      x.translate(w / 2, w / 2);
-      // narrow bamboo leaves hanging from a twig, drooping
-      for (let i = 0; i < 18; i++) {
-        x.save(); x.rotate(rand(0.3, Math.PI - 0.3)); x.translate(rand(4, 30), 0);
-        x.fillStyle = `rgb(${rand(40, 70)},${rand(80, 115)},${rand(35, 55)})`;
-        x.beginPath(); x.ellipse(40, 0, 44, 4.5, 0, 0, TAU); x.fill(); x.restore();
+    const leafTex = drawTexture(512, 512, (x, w) => {
+      // a spray: twigs fanning out, each ending in a hand of lance-shaped leaves that droop at the tips
+      x.translate(w / 2, w * 0.2);
+      for (let t = 0; t < 7; t++) {
+        const ta = rand(0.5, Math.PI - 0.5), tl = rand(60, 150);
+        const tx = Math.cos(ta) * tl, ty = Math.sin(ta) * tl;
+        x.strokeStyle = 'rgba(60,70,36,0.9)'; x.lineWidth = 2; x.beginPath(); x.moveTo(0, 0); x.lineTo(tx, ty); x.stroke();
+        for (let i = 0; i < 6; i++) {
+          x.save(); x.translate(tx, ty); x.rotate(ta + rand(-0.9, 0.9));
+          const L = rand(70, 110), W = L * 0.11;
+          const g = rand(0, 1) < 0.1 ? [150, 140, 70] : [rand(50, 80), rand(95, 130), rand(40, 60)];
+          x.fillStyle = `rgb(${g[0] | 0},${g[1] | 0},${g[2] | 0})`;
+          x.beginPath(); x.moveTo(0, 0); x.quadraticCurveTo(L * 0.4, -W, L, W * 1.5); x.quadraticCurveTo(L * 0.4, W, 0, 0); x.fill();
+          x.strokeStyle = 'rgba(30,50,20,0.6)'; x.lineWidth = 1; x.beginPath(); x.moveTo(2, 0); x.quadraticCurveTo(L * 0.45, 0, L * 0.95, W * 1.3); x.stroke();
+          x.restore();
+        }
       }
     });
-    const N = this.app.low ? 180 : 360;
-    const LEAVES = 6;
-    const stalkGeo = new THREE.CylinderGeometry(0.06, 0.08, 1, 8);
+    const N = this.app.low ? 240 : 480;
+    const LEAVES = 9;
+    const stalkGeo = new THREE.CylinderGeometry(0.055, 0.075, 1, 10);
     stalkGeo.translate(0, 0.5, 0);
-    const stalks = new THREE.InstancedMesh(stalkGeo, new THREE.MeshStandardMaterial({ map: bambooTex, roughness: 0.6 }), N);
-    const leafGeo = new THREE.PlaneGeometry(1.5, 1.5);
+    const stalks = new THREE.InstancedMesh(stalkGeo, new THREE.MeshStandardMaterial({ map: bambooTex, roughness: 0.45 }), N);
+    const culmCol = new THREE.Color();
+    const leafGeo = new THREE.PlaneGeometry(1.9, 1.9);
+    leafGeo.translate(0, -0.55, 0); // hangs from its twig
     const leafMat = new THREE.MeshStandardMaterial({ map: leafTex, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.8 });
     const leaves = new THREE.InstancedMesh(leafGeo, leafMat, N * LEAVES);
     for (let k = 0; k < N; k++) {
@@ -131,12 +172,19 @@ export class Chronicle extends Chapter {
       const lean = rand(-0.08, 0.08);
       d.position.set(x, GROUND, z);
       d.rotation.set(lean, rand(0, TAU), side * rand(0.02, 0.1));
-      d.scale.set(1, hgt, 1);
+      const girth = rand(0.7, 1.9);
+      d.scale.set(girth, hgt, girth);
       d.updateMatrix();
       stalks.setMatrixAt(k, d.matrix);
+      // young culms green, older ones yellowing or greyed
+      const age = Math.random();
+      culmCol.setRGB(1, 1, 1).multiplyScalar(rand(0.75, 1.1));
+      if (age > 0.7) culmCol.multiply(new THREE.Color(1.15, 1.05, 0.7));
+      else if (age < 0.15) culmCol.multiply(new THREE.Color(0.8, 0.82, 0.8));
+      stalks.setColorAt(k, culmCol);
       // small sprays of leaves on side twigs all the way up the top half of the stalk
       for (let j = 0; j < LEAVES; j++) {
-        const f = 0.45 + (j / (LEAVES - 1)) * 0.55;
+        const f = 0.4 + (j / (LEAVES - 1)) * 0.62;
         d.position.set(x + side * hgt * 0.06 * f + rand(-0.45, 0.45), GROUND + hgt * f, z + rand(-0.45, 0.45));
         d.rotation.set(rand(-0.6, 0.6), rand(0, TAU), rand(-0.6, 0.6));
         d.scale.setScalar(rand(0.6, 1.1) * (1.1 - f * 0.3));
@@ -153,7 +201,7 @@ export class Chronicle extends Chapter {
       const side = i % 2 ? 1 : -1;
       const tex = this._slabTexture(ev, i);
       const face = new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.05, roughness: 0.85 });
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(3.2, 2, 0.3), [stoneMat, stoneMat, stoneMat, stoneMat, face, stoneMat]);
+      const slab = new THREE.Mesh(new RoundedBoxGeometry(3.2, 2, 0.3, 3, 0.05), [stoneMat, stoneMat, stoneMat, stoneMat, face, stoneMat]);
       slab.position.copy(p).add(new THREE.Vector3(side * 2.1, GROUND + 0.34 + 1.0, 0));
       const look = this.curve.getPointAt(Math.max(0, t - 0.06));
       slab.lookAt(look.x + side * 0.5, slab.position.y, look.z);
@@ -161,7 +209,7 @@ export class Chronicle extends Chapter {
       slab.userData = { index: i, t, face };
       s.add(slab);
       // the stele stands on a low plinth
-      const plinth = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.34, 0.8), stoneMat);
+      const plinth = new THREE.Mesh(new RoundedBoxGeometry(3.6, 0.34, 0.8, 3, 0.06), stoneMat);
       plinth.position.set(slab.position.x, GROUND + 0.17, slab.position.z);
       plinth.quaternion.copy(slab.quaternion);
       s.add(plinth);
@@ -179,6 +227,22 @@ export class Chronicle extends Chapter {
       return slab;
     });
     this.stops = this.slabs.map((sl) => clamp(sl.userData.t - 0.05, 0, 1));
+
+    // mist lying low between the culms, drifting slowly along the path
+    const mistTex = drawTexture(128, 128, (x, w) => {
+      const g = x.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+      g.addColorStop(0, 'rgba(255,255,255,0.8)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = g; x.fillRect(0, 0, w, w);
+    });
+    this.mist = [];
+    for (let k = 0; k < 22; k++) {
+      const z = rand(6, -130);
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(rand(8, 14), rand(2, 3.5)), new THREE.MeshBasicMaterial({ map: mistTex, color: 0x8090b0, transparent: true, opacity: rand(0.05, 0.1), depthWrite: false }));
+      m.position.set(pathX(z) + rand(-5, 5), GROUND + rand(0.3, 0.9), z);
+      m.userData.vx = rand(0.08, 0.25) * (Math.random() < 0.5 ? -1 : 1);
+      s.add(m);
+      this.mist.push(m);
+    }
 
     // fireflies drifting over the grass
     this.dust = new ParticlePool({ count: this.app.low ? 200 : 400, turbulence: 0.6, drag: 0.3, softness: 2 });
@@ -221,6 +285,17 @@ export class Chronicle extends Chapter {
         gl.addColorStop(0, 'rgba(30,28,24,0.35)'); gl.addColorStop(1, 'rgba(30,28,24,0)');
         x.fillStyle = gl; x.fillRect(sx, 0, rand(6, 30), 300);
       }
+      // lichen rosettes, and damp darkening creeping up from the foot
+      for (let k = 0; k < 30; k++) {
+        const cx = rand(0, w), cy = rand(0, 1) < 0.6 ? rand(hh * 0.7, hh) : rand(0, hh), r = rand(6, 26);
+        const lg = x.createRadialGradient(cx, cy, 0, cx, cy, r);
+        const c = rand(0, 1) < 0.5 ? '150,160,120' : '60,80,40';
+        lg.addColorStop(0, `rgba(${c},0.35)`); lg.addColorStop(1, `rgba(${c},0)`);
+        x.fillStyle = lg; x.fillRect(cx - r, cy - r, r * 2, r * 2);
+      }
+      const damp = x.createLinearGradient(0, hh * 0.72, 0, hh);
+      damp.addColorStop(0, 'rgba(24,30,18,0)'); damp.addColorStop(1, 'rgba(24,30,18,0.55)');
+      x.fillStyle = damp; x.fillRect(0, hh * 0.72, w, hh * 0.28);
       const carve = (draw, fill = 'rgba(28,24,22,0.92)') => {
         x.save(); x.fillStyle = 'rgba(230,224,214,0.35)'; x.translate(2, 3); draw(); x.restore();
         x.save(); x.fillStyle = fill; draw(); x.restore();
@@ -329,6 +404,7 @@ export class Chronicle extends Chapter {
   }
 
   update(dt, t) {
+    for (const m of this.mist) { m.position.x += m.userData.vx * dt; m.quaternion.copy(this.camera.quaternion); }
     // snap to nearest stop after input settles
     if (performance.now() - this.lastInput > 650) {
       let best = 0;
