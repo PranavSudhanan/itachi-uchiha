@@ -44,7 +44,9 @@ export class Hero extends Chapter {
     s.fog = new THREE.FogExp2(0x0b0309, 0.03);
     this.camera.position.set(0, 0, 11);
 
-    s.add(new THREE.AmbientLight(0x442233, 1.2));
+    // sky and ground light instead of a flat ambient: surfaces facing up catch the cool night, those facing
+    // down fall into shade, so forms keep their depth instead of washing out
+    s.add(new THREE.HemisphereLight(0x3a3450, 0x1a0508, 1.35));
     const key = new THREE.PointLight(0xff2a3a, 40, 30);
     key.position.set(0, 2, 5);
     s.add(key);

@@ -152,8 +152,29 @@ export class App {
     if (ch.built) return;
     ch.build();
     ch.built = true;
+    this._tuneShadows(ch.scene);
     ch.resize(this.width, this.height);
     this._precompile(ch);
+  }
+
+  /**
+   * One standard for every shadow in the app: soft penumbrae (PCF with a blur radius) instead of hard,
+   * aliased edges; a small depth bias and a normal bias so surfaces don't speckle with self-shadowing
+   * ("acne") and shadows stay attached to what casts them; and sharper maps where the device can afford it.
+   * A chapter's own explicit settings win.
+   */
+  _tuneShadows(scene) {
+    scene.traverse((o) => {
+      if (!o.isLight || !o.castShadow || !o.shadow) return;
+      const sh = o.shadow;
+      if (!this.low && sh.mapSize.x < 2048) sh.mapSize.set(2048, 2048);
+      if (!sh.bias) sh.bias = o.isDirectionalLight ? -0.0004 : -0.0006;
+      if (!sh.normalBias) sh.normalBias = o.isDirectionalLight ? 0.035 : 0.02;
+      if (sh.radius <= 1) sh.radius = o.isDirectionalLight ? 3.5 : 4;
+      sh.blurSamples = 12;
+      sh.map?.dispose();
+      sh.map = null; // rebuilt at the new size
+    });
   }
 
   /**
