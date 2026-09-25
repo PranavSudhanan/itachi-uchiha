@@ -144,6 +144,9 @@ export class Memorial extends Chapter {
     this._buildMeal(s);
     this._buildCrow(s);
     this._buildStorm(s);
+    this._buildStreetLife(s);
+    this._buildDistance(s);
+    this._buildRainDetail(s);
 
     // rain: long streaks around the walker, and a mist of spray at the ground
     const n = this.app.low ? 900 : 2000;
@@ -805,6 +808,165 @@ export class Memorial extends Chapter {
     this.figure = { g, mat, cloakGeo, base: cloakGeo.attributes.position.array.slice() };
   }
 
+  /** The things a street is left with: rain barrels, buckets, crates, a bench, potted plants, a fallen lantern. */
+  _buildStreetLife(s) {
+    const grain = drawTexture(128, 256, (x, w, hh) => {
+      x.fillStyle = '#4a3624'; x.fillRect(0, 0, w, hh);
+      for (let i = 0; i < 60; i++) { x.strokeStyle = `rgba(20,12,6,${rand(0.2, 0.5)})`; x.lineWidth = rand(0.6, 2); const px = rand(0, w); x.beginPath(); x.moveTo(px, 0); x.lineTo(px + rand(-6, 6), hh); x.stroke(); }
+    });
+    // wet wood: darker, with a sheen
+    const wood = new THREE.MeshStandardMaterial({ map: grain, color: 0x8a7a68, roughness: 0.35, metalness: 0.05 });
+    const hoop = new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.4, metalness: 0.6 });
+    const clay = new THREE.MeshPhysicalMaterial({ color: 0x5a3a2a, roughness: 0.3, clearcoat: 0.6 });
+    const leaf = new THREE.MeshStandardMaterial({ color: 0x2a3a22, roughness: 0.7 });
+    const water = new THREE.MeshStandardMaterial({ color: 0x0a0c10, roughness: 0.02, metalness: 0.4 });
+    const g = new THREE.Group();
+    const barrel = (x, z) => {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.3, 0.8, 18), wood);
+      b.position.set(x, 0.4, z);
+      for (const y of [0.15, 0.62]) { const h = new THREE.Mesh(new THREE.TorusGeometry(0.33, 0.012, 6, 24), hoop); h.rotation.x = Math.PI / 2; h.position.set(x, y, z); g.add(h); }
+      const top = new THREE.Mesh(new THREE.CircleGeometry(0.31, 20), water); // brimming with rain
+      top.rotation.x = -Math.PI / 2; top.position.set(x, 0.79, z);
+      b.castShadow = true;
+      g.add(b, top);
+    };
+    const bucket = (x, z, tipped) => {
+      const b = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.13, 0.28, 14, 1, true), wood);
+      b.position.set(x, tipped ? 0.14 : 0.14, z);
+      if (tipped) { b.rotation.z = Math.PI / 2; b.rotation.y = rand(0, TAU); }
+      b.material.side = THREE.DoubleSide;
+      g.add(b);
+    };
+    const crates = (x, z) => {
+      for (let k = 0; k < 3; k++) {
+        const c = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.4, 0.5), wood);
+        c.position.set(x + (k === 2 ? 0.05 : 0), 0.2 + (k === 2 ? 0.4 : 0), z + (k === 1 ? 0.55 : 0));
+        c.rotation.y = rand(-0.15, 0.15);
+        c.castShadow = true;
+        g.add(c);
+      }
+    };
+    const bench = (x, z, side) => {
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.06, 1.6), wood);
+      seat.position.set(x, 0.45, z);
+      g.add(seat);
+      for (const dz of [-0.65, 0.65]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.42, 0.06), wood); leg.position.set(x, 0.21, z + dz); g.add(leg); }
+    };
+    const pot = (x, z) => {
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.3, 14), clay);
+      p.position.set(x, 0.15, z);
+      g.add(p);
+      for (let k = 0; k < 7; k++) {
+        const bl = new THREE.Mesh(new THREE.ConeGeometry(0.035, rand(0.35, 0.6), 4), leaf);
+        bl.position.set(x + rand(-0.08, 0.08), 0.45, z + rand(-0.08, 0.08));
+        bl.rotation.set(rand(-0.4, 0.4), 0, rand(-0.4, 0.4));
+        g.add(bl);
+      }
+    };
+    // a paper lantern that fell and was never picked up, crumpled in a puddle
+    const fallen = (x, z) => {
+      const prof = [];
+      for (let k = 0; k <= 10; k++) { const y = -0.2 + (k / 10) * 0.4; prof.push(new THREE.Vector2(0.08 + Math.cos((y / 0.2) * Math.PI / 2) * 0.1, y)); }
+      const geo = new THREE.LatheGeometry(prof, 14);
+      const pp = geo.attributes.position;
+      for (let v = 0; v < pp.count; v++) pp.setXYZ(v, pp.getX(v) * (1 + rand(-0.12, 0.08)), pp.getY(v), pp.getZ(v) * (1 + rand(-0.12, 0.08)));
+      geo.computeVertexNormals();
+      const l = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0xb8a482, roughness: 0.9, side: THREE.DoubleSide }));
+      l.rotation.set(Math.PI / 2 - 0.2, 0, rand(0, TAU));
+      l.position.set(x, 0.1, z);
+      g.add(l);
+    };
+    // placed against the house fronts on both sides, clear of the lanterns, doors and the walking line
+    const wallX = (side) => side * (STREET_W - 0.25);
+    [[-1, 2], [1, -9], [-1, -23], [1, -41], [-1, -48], [1, -60]].forEach(([sd, z]) => barrel(wallX(sd), z));
+    [[1, 1.2, false], [1, 1.6, true], [-1, -24, false], [-1, -47.4, true]].forEach(([sd, z, tip]) => bucket(wallX(sd) - sd * 0.45, z, tip));
+    [[-1, -12], [1, -31]].forEach(([sd, z]) => crates(wallX(sd) - sd * 0.1, z));
+    bench(wallX(1) - 0.1, -26, 1);
+    [[-1, -4], [-1, -4.6], [1, -15], [-1, -34], [1, -54]].forEach(([sd, z]) => pot(wallX(sd), z));
+    fallen(1.6, -17);
+    s.add(g);
+  }
+
+  /** Beyond the gate: more roofs, fading into rain and mist, and a ridge of hills behind them. */
+  _buildDistance(s) {
+    const layer = (z, color, rows, seed) => {
+      const pos = [];
+      for (let k = 0; k < rows; k++) {
+        const x0 = -40 + k * (80 / rows) + Math.sin(seed + k) * 1.5, w = 80 / rows * 0.95;
+        const base = 0, wall = 2.4 + Math.abs(Math.sin(seed * 3 + k)) * 1.6, ridge = wall + 1.2 + Math.abs(Math.sin(seed + k * 1.7)) * 0.6;
+        pos.push(x0, base, 0, x0 + w, base, 0, x0 + w, wall, 0, x0, base, 0, x0 + w, wall, 0, x0, wall, 0); // the house
+        pos.push(x0 - 0.4, wall, 0, x0 + w + 0.4, wall, 0, x0 + w / 2, ridge, 0); // its roof
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, fog: false }));
+      m.position.set(0, 0, z);
+      return m;
+    };
+    // nearer rows darker, farther rows lost in the haze
+    s.add(layer(END - 16, 0x0b0d14, 16, 1), layer(END - 26, 0x141824, 20, 2), layer(END - 38, 0x1c2130, 26, 3));
+    const hills = new THREE.Shape();
+    hills.moveTo(-90, 0);
+    for (let x = -90; x <= 90; x += 3) hills.lineTo(x, 7 + Math.sin(x * 0.07) * 3 + Math.sin(x * 0.19 + 1) * 1.2);
+    hills.lineTo(90, 0);
+    const hill = new THREE.Mesh(new THREE.ShapeGeometry(hills), new THREE.MeshBasicMaterial({ color: 0x222838, fog: false }));
+    hill.position.z = END - 55;
+    s.add(hill);
+    // mist lying between the rows
+    const mistTex = drawTexture(4, 64, (x, w, hh) => { const gr = x.createLinearGradient(0, 0, 0, hh); gr.addColorStop(0, 'rgba(255,255,255,0)'); gr.addColorStop(0.6, 'rgba(255,255,255,1)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, hh); });
+    for (const [z, y, o] of [[END - 21, 1.4, 0.25], [END - 32, 2.2, 0.3], [END - 46, 3, 0.35]]) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(120, 4), new THREE.MeshBasicMaterial({ map: mistTex, color: 0x5a6682, transparent: true, opacity: o, depthWrite: false, fog: false }));
+      m.position.set(0, y, z);
+      s.add(m);
+    }
+  }
+
+  /** Where the rain lands: rings spreading in the puddles, and water running off the eaves. */
+  _buildRainDetail(s) {
+    const ringTex = drawTexture(64, 64, (x, w) => { x.strokeStyle = 'rgba(255,255,255,0.9)'; x.lineWidth = 3; x.beginPath(); x.arc(w / 2, w / 2, w / 2 - 4, 0, TAU); x.stroke(); });
+    const N = this.app.low ? 60 : 140;
+    this.ripples = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: ringTex, color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), N);
+    this.ripples.frustumCulled = false;
+    this.rippleData = Array.from({ length: N }, () => ({ x: 0, z: 0, t: rand(0, 1), life: rand(0.5, 0.9), size: rand(0.18, 0.4) }));
+    this.ripples.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(N * 3), 3);
+    s.add(this.ripples);
+    // drips off the eaves on both sides of the street, around wherever you're walking
+    const D = this.app.low ? 60 : 140;
+    const dg = new THREE.BufferGeometry();
+    this.dripPos = new Float32Array(D * 6);
+    this.dripData = Array.from({ length: D }, () => ({ side: Math.random() < 0.5 ? -1 : 1, dz: rand(-12, 4), y: rand(0, 3.4), v: rand(4, 7) }));
+    dg.setAttribute('position', new THREE.BufferAttribute(this.dripPos, 3).setUsage(THREE.DynamicDrawUsage));
+    this.drips = new THREE.LineSegments(dg, new THREE.LineBasicMaterial({ color: 0xaab4cc, transparent: true, opacity: 0.45, depthWrite: false }));
+    this.drips.frustumCulled = false;
+    s.add(this.drips);
+  }
+
+  _updateRainDetail(dt, z) {
+    const d = this.dummy, col = new THREE.Color();
+    this.rippleData.forEach((r, i) => {
+      r.t += dt / r.life;
+      if (r.t >= 1) { r.t = 0; r.x = rand(-4.4, 4.4); r.z = z + rand(-14, 1.5); r.size = rand(0.18, 0.4); }
+      d.position.set(r.x, 0.015, r.z);
+      d.rotation.set(-Math.PI / 2, 0, 0);
+      d.scale.setScalar(r.size * (0.2 + r.t));
+      d.updateMatrix();
+      this.ripples.setMatrixAt(i, d.matrix);
+      this.ripples.setColorAt(i, col.setScalar(0.35 * (1 - r.t) * (1 - r.t)));
+    });
+    this.ripples.instanceMatrix.needsUpdate = true;
+    this.ripples.instanceColor.needsUpdate = true;
+    const P = this.dripPos;
+    this.dripData.forEach((q, i) => {
+      q.y -= q.v * dt;
+      if (q.y < 0) { q.y = 3.35; q.dz = rand(-12, 4); q.side = Math.random() < 0.5 ? -1 : 1; }
+      // the eave line, just in front of the house fronts
+      const x = q.side * (STREET_W - 0.62), zz = z + q.dz;
+      P[i * 6] = x; P[i * 6 + 1] = q.y; P[i * 6 + 2] = zz;
+      P[i * 6 + 3] = x; P[i * 6 + 4] = q.y - 0.28; P[i * 6 + 5] = zz;
+    });
+    this.drips.geometry.attributes.position.needsUpdate = true;
+  }
+
   _stormStrike() {
     this.storm = { t: 0, done: true };
     this.redMoon.position.copy(this.redMoonLow);
@@ -1155,5 +1317,6 @@ export class Memorial extends Chapter {
     }
     this.rain.geometry.attributes.position.needsUpdate = true;
     this.splash.update(dt, t);
+    this._updateRainDetail(dt, z);
   }
 }
